@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Skill(agent-browser)",
+      "Bash(npx playwright install:*)",
+      "Bash(npm install:*)",
+      "Bash(set DEBUG=agent-browser:*)",
+      "Bash(node -e:*)",
+      "Bash(npm root:*)",
+      "Bash(node login.js:*)",
+      "Bash(npx tsx:*)",
+      "Bash(pip show:*)",
+      "Bash(pip install:*)",
+      "Bash(python export_excel.py:*)",
+      "Bash(python -m json.tool:*)",
+      "Bash(python:*)"
+    ]
+  }
+}
