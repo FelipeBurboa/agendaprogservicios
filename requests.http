@@ -1,0 +1,72 @@
+@email = 
+@password = 
+@months = 
+
+### Fetch locations
+POST http://localhost:3000/api/locations
+Content-Type: application/json
+
+{
+  "email": "{{email}}",
+  "password": "{{password}}"
+}
+
+### Fetch all bookings — reserved + blocked (JSON)
+POST http://localhost:3000/api/bookings
+Content-Type: application/json
+
+{
+  "email": "{{email}}",
+  "password": "{{password}}",
+  "months": {{months}}
+}
+
+### Fetch all bookings — reserved + blocked (Excel)
+POST http://localhost:3000/api/bookings?format=xlsx
+Content-Type: application/json
+
+{
+  "email": "{{email}}",
+  "password": "{{password}}",
+  "months": {{months}}
+}
+
+### Fetch reserved bookings (JSON)
+POST http://localhost:3000/api/bookings/reserved
+Content-Type: application/json
+
+{
+  "email": "{{email}}",
+  "password": "{{password}}",
+  "months": {{months}}
+}
+
+### Fetch reserved bookings (Excel)
+POST http://localhost:3000/api/bookings/reserved?format=xlsx
+Content-Type: application/json
+
+{
+  "email": "{{email}}",
+  "password": "{{password}}",
+  "months": {{months}}
+}
+
+### Fetch blocked bookings (JSON)
+POST http://localhost:3000/api/bookings/blocked
+Content-Type: application/json
+
+{
+  "email": "{{email}}",
+  "password": "{{password}}",
+  "months": {{months}}
+}
+
+### Fetch blocked bookings (Excel)
+POST http://localhost:3000/api/bookings/blocked?format=xlsx
+Content-Type: application/json
+
+{
+  "email": "{{email}}",
+  "password": "{{password}}",
+  "months": {{months}}
+}
