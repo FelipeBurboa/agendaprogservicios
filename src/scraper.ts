@@ -54,7 +54,7 @@ export async function scrapeBookings(
     const reservedRows: Record<string, unknown>[] = [];
     const blockedRows: Record<string, unknown>[] = [];
     const seenReserved = new Set<string | number>();
-    const seenBlocked = new Set<string | number>();
+    const seenBlocked = new Set<string>();
 
     for (const day of days) {
       requestNum++;
@@ -99,11 +99,11 @@ export async function scrapeBookings(
               Estado: ev.type,
             });
           } else {
-            const evId = ev.id;
-            if (seenBlocked.has(evId)) continue;
-            seenBlocked.add(evId);
+            const dedupKey = `${ev.id}::${ev.start}`;
+            if (seenBlocked.has(dedupKey)) continue;
+            seenBlocked.add(dedupKey);
             blockedRows.push({
-              "Event ID": evId,
+              "Event ID": ev.id,
               Profesional: profName,
               Tipo: ev.type,
               Titulo: ev.title ?? "",
