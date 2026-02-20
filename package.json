@@ -1,8 +1,60 @@
 {
+  "name": "ventaplay-scraper",
+  "version": "1.0.0",
+  "main": "dist-electron/electron/main.js",
+  "scripts": {
+    "start": "npx tsx main.ts",
+    "server": "npx tsx server.ts",
+    "electron:build": "tsc -p tsconfig.json",
+    "renderer:build": "cd renderer && npm run build",
+    "electron:dev": "npm run electron:build && concurrently -k \"cd renderer && npm run dev\" \"node scripts/wait-and-launch.js\"",
+    "electron:copy-browsers": "node scripts/copy-browsers.js",
+    "electron:pack": "npm run electron:build && npm run renderer:build && npm run electron:copy-browsers && electron-builder --win",
+    "electron:pack:mac": "npm run electron:build && npm run renderer:build && npm run electron:copy-browsers && electron-builder --mac"
+  },
   "dependencies": {
+    "@types/express": "^5.0.6",
     "@types/node": "^25.1.0",
+    "exceljs": "^4.4.0",
+    "express": "^5.2.1",
     "playwright": "^1.58.0",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3"
+  },
+  "devDependencies": {
+    "electron": "^35.1.2",
+    "electron-builder": "^26.0.12",
+    "concurrently": "^9.1.2"
+  },
+  "build": {
+    "appId": "com.ventaplay.scraper",
+    "productName": "VentaPlay Extractor",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist-electron/**/*",
+      "dist-renderer/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": ".playwright-browsers",
+        "to": "browsers",
+        "filter": ["**/*"]
+      }
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "ventaplay-logo-iso.v2.png",
+      "signAndEditExecutable": false
+    },
+    "mac": {
+      "target": "dmg",
+      "category": "public.app-category.utilities"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
   }
 }

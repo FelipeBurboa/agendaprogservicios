@@ -1,0 +1,33 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --color-brand-purple: #8C00FF;
+  --color-brand-purple-dark: #450693;
+  --color-brand-green: #08C8A7;
+  --color-surface: #1A1625;
+  --color-surface-light: #241F30;
+  --color-border: #3D3550;
+  --color-bg: #0E0B16;
+}
+
+* {
+  font-family: 'DM Sans', sans-serif;
+}
+
+body {
+  overflow: hidden;
+  user-select: none;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #3D3550;
+  border-radius: 3px;
+}

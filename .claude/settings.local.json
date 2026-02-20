@@ -13,7 +13,10 @@
       "Bash(pip install:*)",
       "Bash(python export_excel.py:*)",
       "Bash(python -m json.tool:*)",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "Bash(npm run:*)",
+      "Bash(xargs:*)",
+      "WebFetch(domain:www.electron.build)"
     ]
   }
 }
