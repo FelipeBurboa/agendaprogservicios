@@ -1,5 +1,27 @@
 import { chromium } from "playwright";
+import * as path from "path";
+import * as fs from "fs";
 import type { AuthState } from "./types.js";
+
+/**
+ * Resolve the bundled chromium executable when running inside a packaged Electron app.
+ * Returns undefined in dev mode so Playwright uses its normal discovery.
+ */
+function getBundledBrowserPath(): string | undefined {
+  if (!process.resourcesPath) return undefined;
+  const browsersDir = path.join(process.resourcesPath, "browsers");
+  if (!fs.existsSync(browsersDir)) return undefined;
+  const entries = fs.readdirSync(browsersDir).filter(d => /^chromium-\d+$/.test(d));
+  if (entries.length === 0) return undefined;
+  entries.sort();
+  const latest = entries[entries.length - 1];
+  if (process.platform === "win32") {
+    return path.join(browsersDir, latest, "chrome-win64", "chrome.exe");
+  } else if (process.platform === "darwin") {
+    return path.join(browsersDir, latest, "chrome-mac", "Chromium.app", "Contents", "MacOS", "Chromium");
+  }
+  return path.join(browsersDir, latest, "chrome-linux", "chrome");
+}
 
 /**
  * Launch a headless browser, log in to AgendaPro, and return the JWT token.
@@ -9,7 +31,8 @@ export async function loginAndGetToken(
   email: string,
   password: string
 ): Promise<string> {
-  const browser = await chromium.launch({ headless: true });
+  const executablePath = getBundledBrowserPath();
+  const browser = await chromium.launch({ headless: true, ...(executablePath && { executablePath }) });
   const context = await browser.newContext();
   const page = await context.newPage();
 
