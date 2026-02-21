@@ -6,3 +6,4 @@ dist-electron/
 dist-renderer/
 release/
 .playwright-browsers/
+requests.http
