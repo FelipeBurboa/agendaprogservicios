@@ -9,8 +9,8 @@
     "renderer:build": "cd renderer && npm run build",
     "electron:dev": "npm run electron:build && concurrently -k \"cd renderer && npm run dev\" \"node scripts/wait-and-launch.js\"",
     "electron:copy-browsers": "node scripts/copy-browsers.js",
-    "electron:pack": "npm run electron:build && npm run renderer:build && npm run electron:copy-browsers && electron-builder --win",
-    "electron:pack:mac": "npm run electron:build && npm run renderer:build && npm run electron:copy-browsers && electron-builder --mac"
+    "electron:pack": "npm run electron:build && npm run renderer:build && npm run electron:copy-browsers && electron-builder --win --publish never",
+    "electron:pack:mac": "npm run electron:build && npm run renderer:build && npm run electron:copy-browsers && electron-builder --mac --publish never"
   },
   "dependencies": {
     "@types/express": "^5.0.6",
@@ -50,7 +50,8 @@
     },
     "mac": {
       "target": "dmg",
-      "category": "public.app-category.utilities"
+      "category": "public.app-category.utilities",
+      "signIgnore": ["browsers"]
     },
     "nsis": {
       "oneClick": false,
