@@ -12,13 +12,14 @@ import {
   generateSucursalesWorkbookFile,
   generateWorkbookFile,
 } from "./src/excel.js";
+import {
+  BOOKINGS_MIN_TIMEOUT_MS,
+  calculateBookingsTimeoutMs,
+} from "./src/bookings-runtime.js";
 import type { BookingParams } from "./src/types.js";
 
-const DEFAULT_REQUEST_TIMEOUT_MS = 5 * 60 * 1000;
+const DEFAULT_REQUEST_TIMEOUT_MS = BOOKINGS_MIN_TIMEOUT_MS;
 const BOOKINGS_PREP_TIMEOUT_MS = DEFAULT_REQUEST_TIMEOUT_MS;
-const BOOKINGS_THROTTLE_MS = 300;
-const BOOKINGS_REQUEST_OVERHEAD_MS = 1000;
-const BOOKINGS_COMPLETION_BUFFER_MS = 2 * 60 * 1000;
 const REQUEST_TIMEOUT_MESSAGE = "Request timed out";
 
 type BookingsRouteKind = "all" | "reserved" | "blocked";
@@ -122,14 +123,6 @@ function sendJsonOnce(
 
   res.status(status).json(payload);
   return true;
-}
-
-function calculateBookingsTimeoutMs(totalRequests: number): number {
-  const estimatedMs =
-    totalRequests * (BOOKINGS_THROTTLE_MS + BOOKINGS_REQUEST_OVERHEAD_MS) +
-    BOOKINGS_COMPLETION_BUFFER_MS;
-
-  return Math.max(DEFAULT_REQUEST_TIMEOUT_MS, estimatedMs);
 }
 
 function applyRequestTimeout(
@@ -407,5 +400,6 @@ app.listen(PORT, () => {
   console.log("  POST /api/bookings/reserved  (?format=json|xlsx)");
   console.log("  POST /api/bookings/blocked   (?format=json|xlsx)");
 });
+
 
 
