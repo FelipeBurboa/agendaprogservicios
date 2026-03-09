@@ -1,5 +1,6 @@
 import { loginAndGetToken, checkTokenExpiry } from "./auth.js";
 import {
+  RequestAbortedError,
   fetchAdminLocations,
   fetchAllBookings,
   fetchLocations,
@@ -212,6 +213,64 @@ function buildProfessionalSheets(
   return sheets;
 }
 
+export interface BookingsDateRange {
+  rangeStart: Date;
+  rangeEnd: Date;
+  days: string[];
+}
+
+export interface BookingsScrapeContext extends BookingsDateRange {
+  token: string;
+  locations: Location[];
+}
+
+export interface BookingsScrapeOptions {
+  signal?: AbortSignal;
+  shouldAbort?: () => boolean;
+}
+
+function throwIfScrapeAborted(options: BookingsScrapeOptions = {}): void {
+  if (options.signal?.aborted || options.shouldAbort?.()) {
+    throw new RequestAbortedError();
+  }
+}
+
+export function buildBookingDateRange(
+  params: Pick<BookingParams, "months" | "past_months">
+): BookingsDateRange {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const rangeStart = params.past_months
+    ? addMonths(today, -params.past_months)
+    : today;
+  const rangeEnd = addMonths(today, params.months);
+  const days = [...dailyChunks(rangeStart, rangeEnd)];
+
+  return { rangeStart, rangeEnd, days };
+}
+
+export async function prepareBookingsScrape(
+  params: BookingParams,
+  options: BookingsScrapeOptions = {}
+): Promise<BookingsScrapeContext> {
+  throwIfScrapeAborted(options);
+  const token = await authenticateAgendaPro({
+    email: params.email,
+    password: params.password,
+  });
+  throwIfScrapeAborted(options);
+
+  const locations = await fetchLocations(token, options.signal);
+  throwIfScrapeAborted(options);
+
+  return {
+    token,
+    locations,
+    ...buildBookingDateRange(params),
+  };
+}
+
 export async function authenticateAgendaPro(
   credentials: Credentials
 ): Promise<string> {
@@ -314,39 +373,42 @@ export async function scrapeProfessionals(
   };
 }
 
-export async function scrapeBookings(
-  params: BookingParams
+export async function scrapeBookingsWithContext(
+  context: BookingsScrapeContext,
+  options: BookingsScrapeOptions = {}
 ): Promise<ScrapedBookings> {
-  const { token, locations } = await scrapeLocations(
-    params.email,
-    params.password
-  );
-
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const rangeEnd = addMonths(today, params.months);
-  const days = [...dailyChunks(today, rangeEnd)];
-
-  const totalRequests = locations.length * days.length;
+  const totalRequests = context.locations.length * context.days.length;
   let requestNum = 0;
 
   console.log(
-    `\nFetching bookings from ${fmtDate(today)} to ${fmtDate(rangeEnd)} (${days.length} days x ${locations.length} locations = ${totalRequests} requests)\n`
+    `\nFetching bookings from ${fmtDate(context.rangeStart)} to ${fmtDate(context.rangeEnd)} (${context.days.length} days x ${context.locations.length} locations = ${totalRequests} requests)\n`
   );
 
   const allReserved: Map<number, Record<string, unknown>[]> = new Map();
   const allBlocked: Map<number, Record<string, unknown>[]> = new Map();
 
-  for (const loc of locations) {
+  for (const loc of context.locations) {
+    throwIfScrapeAborted(options);
+
     const reservedRows: Record<string, unknown>[] = [];
     const blockedRows: Record<string, unknown>[] = [];
     const seenReserved = new Set<string | number>();
     const seenBlocked = new Set<string>();
 
-    for (const day of days) {
+    for (const day of context.days) {
+      throwIfScrapeAborted(options);
+
       requestNum++;
       console.log(`  [${requestNum}/${totalRequests}] ${loc.label}: ${day}`);
-      const data = await fetchAllBookings(token, loc.value, day, day);
+      const data = await fetchAllBookings(
+        context.token,
+        loc.value,
+        day,
+        day,
+        options.signal
+      );
+
+      throwIfScrapeAborted(options);
 
       for (const user of data.calendar_users_events) {
         const profName = `${user.first_name} ${user.last_name}`;
@@ -399,8 +461,11 @@ export async function scrapeBookings(
           }
         }
       }
-      await sleep(300);
+
+      await sleep(300, options.signal);
     }
+
+    throwIfScrapeAborted(options);
 
     reservedRows.sort((a, b) =>
       String(a["Inicio"]).localeCompare(String(b["Inicio"]))
@@ -417,5 +482,17 @@ export async function scrapeBookings(
     );
   }
 
-  return { locations, reserved: allReserved, blocked: allBlocked };
+  return {
+    locations: context.locations,
+    reserved: allReserved,
+    blocked: allBlocked,
+  };
+}
+
+export async function scrapeBookings(
+  params: BookingParams,
+  options: BookingsScrapeOptions = {}
+): Promise<ScrapedBookings> {
+  const context = await prepareBookingsScrape(params, options);
+  return scrapeBookingsWithContext(context, options);
 }
