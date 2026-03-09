@@ -1,14 +1,59 @@
-import type { ScraperResult } from "../types.ts";
+import type { MetricTone, ScraperResult } from "../types.ts";
 
 interface Props {
   results: ScraperResult;
   onRestart: () => void;
 }
 
+function getTitle(exportType: ScraperResult["exportType"]): string {
+  switch (exportType) {
+    case "services":
+      return "Servicios exportados";
+    case "professionals":
+      return "Profesionales exportados";
+    case "bookings":
+    default:
+      return "Extraccion completada";
+  }
+}
+
+function getDescription(results: ScraperResult): string {
+  switch (results.exportType) {
+    case "services":
+      return "El catalogo de servicios ya quedo listo en la carpeta seleccionada.";
+    case "professionals":
+      return results.files.some((file) => file.endsWith("sucursales.xlsx"))
+        ? "Los archivos de profesionales y sucursales ya quedaron listos en la carpeta seleccionada."
+        : "El archivo de profesionales ya quedo listo en la carpeta seleccionada.";
+    case "bookings":
+    default:
+      return "Los archivos exportados ya quedaron listos en la carpeta seleccionada.";
+  }
+}
+
+function getMetricColorClass(tone: MetricTone): string {
+  switch (tone) {
+    case "green":
+      return "text-brand-green";
+    case "neutral":
+      return "text-white/90";
+    case "purple":
+    default:
+      return "text-brand-purple";
+  }
+}
+
+function getGridClass(metricCount: number): string {
+  if (metricCount >= 3) return "grid-cols-3";
+  if (metricCount === 2) return "grid-cols-2";
+  return "grid-cols-1";
+}
+
 export default function ResultsView({ results, onRestart }: Props) {
+  const metrics = results.metrics.filter((metric) => Number.isFinite(metric.value));
+
   return (
-    <div className="w-full max-w-sm flex flex-col items-center gap-6 pt-12">
-      {/* Success icon */}
+    <div className="w-full max-w-md flex flex-col items-center gap-6 pt-12">
       <div className="w-16 h-16 rounded-full bg-brand-green/20 flex items-center justify-center">
         <svg
           className="w-8 h-8 text-brand-green"
@@ -25,27 +70,26 @@ export default function ResultsView({ results, onRestart }: Props) {
         </svg>
       </div>
 
-      <h2 className="text-xl font-semibold text-white/90">
-        Extracción completada
-      </h2>
-
-      {/* Summary cards */}
-      <div className="w-full grid grid-cols-2 gap-3">
-        <div className="bg-surface rounded-lg p-4 text-center">
-          <p className="text-2xl font-bold text-brand-purple">
-            {results.reserved}
-          </p>
-          <p className="text-xs text-white/50 mt-1">Reservas</p>
-        </div>
-        <div className="bg-surface rounded-lg p-4 text-center">
-          <p className="text-2xl font-bold text-brand-green">
-            {results.blocked}
-          </p>
-          <p className="text-xs text-white/50 mt-1">Bloqueos</p>
-        </div>
+      <div className="text-center space-y-2">
+        <h2 className="text-xl font-semibold text-white/90">
+          {getTitle(results.exportType)}
+        </h2>
+        <p className="text-sm text-white/55 max-w-sm">{getDescription(results)}</p>
       </div>
 
-      {/* File list */}
+      {metrics.length > 0 && (
+        <div className={`w-full grid ${getGridClass(metrics.length)} gap-3`}>
+          {metrics.map((metric) => (
+            <div key={metric.label} className="bg-surface rounded-lg p-4 text-center">
+              <p className={`text-2xl font-bold ${getMetricColorClass(metric.tone)}`}>
+                {metric.value}
+              </p>
+              <p className="text-xs text-white/50 mt-1">{metric.label}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
       {results.files.length > 0 && (
         <div className="w-full bg-surface rounded-lg p-4">
           <p className="text-sm font-medium text-white/70 mb-2">
@@ -77,12 +121,11 @@ export default function ResultsView({ results, onRestart }: Props) {
         </div>
       )}
 
-      {/* Restart button */}
       <button
         onClick={onRestart}
         className="w-full py-3 rounded-lg font-semibold text-white bg-gradient-to-r from-brand-purple to-[#A033FF] hover:shadow-[0_0_20px_rgba(8,200,167,0.3)] transition-all duration-300 cursor-pointer"
       >
-        Nueva extracción
+        Nueva exportacion
       </button>
     </div>
   );

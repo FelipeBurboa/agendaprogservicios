@@ -14,14 +14,17 @@ export default function ProgressView({ progress }: Props) {
 
   return (
     <div className="w-full max-w-sm flex flex-col items-center gap-6 pt-16">
-      {/* Small logo */}
       <div dangerouslySetInnerHTML={{ __html: LOGO_SVG_SMALL }} />
 
-      <h2 className="text-xl font-semibold text-white/90">
-        Extrayendo datos...
-      </h2>
+      <div className="text-center space-y-2">
+        <h2 className="text-xl font-semibold text-white/90">
+          Procesando exportacion...
+        </h2>
+        <p className="text-sm text-white/55">
+          Manteniendo la sesion activa mientras se preparan los archivos.
+        </p>
+      </div>
 
-      {/* Progress bar */}
       <div className="w-full">
         <div className="w-full h-3 rounded-full bg-surface-light overflow-hidden">
           <div
@@ -39,17 +42,15 @@ export default function ProgressView({ progress }: Props) {
         </div>
       </div>
 
-      {/* Status message */}
       {progress.message && (
         <p className="text-sm text-white/60 text-center truncate w-full">
           {progress.message}
         </p>
       )}
 
-      {/* Pulsing indicator */}
       <div className="flex items-center gap-2 mt-4">
         <div className="w-2 h-2 rounded-full bg-brand-green animate-pulse" />
-        <span className="text-xs text-white/40">Procesando solicitudes</span>
+        <span className="text-xs text-white/40">Consultando AgendaPro</span>
       </div>
     </div>
   );
