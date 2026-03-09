@@ -7,3 +7,4 @@ dist-renderer/
 release/
 .playwright-browsers/
 requests.http
+data.txt

@@ -6,12 +6,12 @@ let mainWindow: BrowserWindow | null = null;
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
-    width: 540,
-    height: 730,
+    width: 560,
+    height: 880,
     resizable: false,
     maximizable: false,
     fullscreenable: false,
-    title: "VentaPlay — Extractor de Reservas",
+    title: "VentaPlay - Exportador AgendaPro",
     backgroundColor: "#0E0B16",
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
@@ -20,14 +20,11 @@ function createWindow(): void {
     },
   });
 
-  // Hide menu bar
   Menu.setApplicationMenu(null);
 
-  // Dev: load Vite dev server. Prod: load built files.
   if (!app.isPackaged && process.env.VITE_DEV_SERVER_URL) {
     mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
   } else if (!app.isPackaged) {
-    // Dev fallback: try Vite default port
     mainWindow.loadURL("http://localhost:5173");
   } else {
     mainWindow.loadFile(
@@ -54,3 +51,4 @@ app.on("activate", () => {
     createWindow();
   }
 });
+

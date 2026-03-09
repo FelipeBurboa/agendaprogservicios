@@ -1,16 +1,28 @@
 import { contextBridge, ipcRenderer } from "electron";
 
+export type ExportType = "bookings" | "services" | "professionals";
+export type BookingType = "all" | "reserved" | "blocked";
+export type MetricTone = "purple" | "green" | "neutral";
+
 export interface ScraperParams {
   email: string;
   password: string;
   months: number;
-  bookingType: "all" | "reserved" | "blocked";
+  pastMonths?: number;
+  bookingType: BookingType;
+  exportType: ExportType;
   savePath: string;
 }
 
+export interface ResultMetric {
+  label: string;
+  value: number;
+  tone: MetricTone;
+}
+
 export interface ScraperResult {
-  reserved: number;
-  blocked: number;
+  exportType: ExportType;
+  metrics: ResultMetric[];
   files: string[];
 }
 
