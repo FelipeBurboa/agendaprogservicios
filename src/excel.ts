@@ -7,16 +7,21 @@ import {
   ALT_FILL,
   RESERVED_HEADERS,
   BLOCKED_HEADERS,
+  SERVICE_EXPORT_HEADERS,
   type Location,
+  type ServiceExportRow,
 } from "./types.js";
 
-export function writeSheet(
+type SheetRow = Record<string, unknown>;
+type ColumnFormatMap = Partial<Record<string, string>>;
+
+export function writeSheet<T extends object>(
   ws: ExcelJS.Worksheet,
-  headers: string[],
-  rows: Record<string, unknown>[]
+  headers: readonly string[],
+  rows: T[],
+  columnFormats: ColumnFormatMap = {}
 ): void {
-  // Header row
-  const headerRow = ws.addRow(headers);
+  const headerRow = ws.addRow([...headers]);
   headerRow.eachCell((cell) => {
     cell.font = HEADER_FONT;
     cell.fill = HEADER_FILL;
@@ -24,9 +29,9 @@ export function writeSheet(
     cell.border = THIN_BORDER;
   });
 
-  // Data rows
   for (let i = 0; i < rows.length; i++) {
-    const values = headers.map((h) => rows[i][h] ?? "");
+    const row = rows[i] as SheetRow;
+    const values = headers.map((header) => row[header] ?? "");
     const dataRow = ws.addRow(values);
     dataRow.eachCell((cell) => {
       cell.border = THIN_BORDER;
@@ -37,17 +42,23 @@ export function writeSheet(
     });
   }
 
-  // Auto-width columns
+  headers.forEach((header, idx) => {
+    const numFmt = columnFormats[header];
+    if (numFmt) {
+      ws.getColumn(idx + 1).numFmt = numFmt;
+    }
+  });
+
   ws.columns.forEach((col, idx) => {
     let maxLen = headers[idx]?.length ?? 10;
     rows.forEach((row) => {
-      const val = String(row[headers[idx]] ?? "");
+      const rowData = row as SheetRow;
+      const val = String(rowData[headers[idx]] ?? "");
       maxLen = Math.max(maxLen, Math.min(val.length, 40));
     });
     col.width = maxLen + 3;
   });
 
-  // Auto-filter and freeze
   ws.autoFilter = {
     from: { row: 1, column: 1 },
     to: { row: rows.length + 1, column: headers.length },
@@ -69,7 +80,29 @@ function buildWorkbook(
   return wb;
 }
 
-/** Write an Excel workbook to a file on disk. */
+function buildSingleSheetWorkbook<T extends object>(
+  sheetName: string,
+  headers: readonly string[],
+  rows: T[],
+  columnFormats: ColumnFormatMap = {}
+): ExcelJS.Workbook {
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet(sheetName.slice(0, 31));
+  writeSheet(ws, headers, rows, columnFormats);
+  return wb;
+}
+
+function buildServicesWorkbook(rows: ServiceExportRow[]): ExcelJS.Workbook {
+  return buildSingleSheetWorkbook("servicios", SERVICE_EXPORT_HEADERS, rows, {
+    precio: "0.00",
+  });
+}
+
+async function workbookToBuffer(wb: ExcelJS.Workbook): Promise<Buffer> {
+  const content = await wb.xlsx.writeBuffer();
+  return Buffer.isBuffer(content) ? content : Buffer.from(content);
+}
+
 export async function generateWorkbookFile(
   kind: "reserved" | "blocked",
   locations: Location[],
@@ -78,4 +111,19 @@ export async function generateWorkbookFile(
 ): Promise<void> {
   const wb = buildWorkbook(kind, locations, dataMap);
   await wb.xlsx.writeFile(filePath);
+}
+
+export async function generateServicesWorkbookFile(
+  rows: ServiceExportRow[],
+  filePath: string
+): Promise<void> {
+  const wb = buildServicesWorkbook(rows);
+  await wb.xlsx.writeFile(filePath);
+}
+
+export async function generateServicesWorkbookBuffer(
+  rows: ServiceExportRow[]
+): Promise<Buffer> {
+  const wb = buildServicesWorkbook(rows);
+  return workbookToBuffer(wb);
 }

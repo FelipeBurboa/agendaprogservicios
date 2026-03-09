@@ -92,6 +92,21 @@ export interface BookingsResponse {
   per_page: number;
 }
 
+export interface AgendaProCatalogService {
+  id: number;
+  name: string;
+  description: string;
+  duration: number;
+  active: boolean;
+  price: number;
+}
+
+export interface AgendaProServiceCategory {
+  id: number;
+  name: string;
+  services?: AgendaProCatalogService[];
+}
+
 // ─── Scraper params / results ────────────────────────────────────────────────
 
 export interface BookingParams {
@@ -104,6 +119,16 @@ export interface ScrapedBookings {
   locations: Location[];
   reserved: Map<number, Record<string, unknown>[]>;
   blocked: Map<number, Record<string, unknown>[]>;
+}
+
+export interface ServiceExportRow {
+  nombre: string;
+  descripcion: string;
+  precio: number;
+  duracion_minutos: number;
+  duracion_paciente: number;
+  activo: boolean;
+  tag: string;
 }
 
 // ─── Excel constants ─────────────────────────────────────────────────────────
@@ -136,6 +161,16 @@ export const BLOCKED_HEADERS = [
   "Inicio",
   "Fin",
 ];
+
+export const SERVICE_EXPORT_HEADERS = [
+  "nombre",
+  "descripcion",
+  "precio",
+  "duracion_minutos",
+  "duracion_paciente",
+  "activo",
+  "tag",
+] as const;
 
 export const HEADER_FONT: Partial<ExcelJS.Font> = {
   bold: true,
