@@ -1,15 +1,19 @@
 import ExcelJS from "exceljs";
 import {
-  HEADER_FONT,
-  HEADER_FILL,
-  HEADER_ALIGNMENT,
-  THIN_BORDER,
   ALT_FILL,
-  RESERVED_HEADERS,
   BLOCKED_HEADERS,
+  HEADER_ALIGNMENT,
+  HEADER_FILL,
+  HEADER_FONT,
+  PROFESSIONAL_EXPORT_HEADERS,
+  RESERVED_HEADERS,
   SERVICE_EXPORT_HEADERS,
+  SUCURSAL_EXPORT_HEADERS,
+  THIN_BORDER,
   type Location,
+  type ProfessionalSheet,
   type ServiceExportRow,
+  type SucursalExportRow,
 } from "./types.js";
 
 type SheetRow = Record<string, unknown>;
@@ -98,6 +102,19 @@ function buildServicesWorkbook(rows: ServiceExportRow[]): ExcelJS.Workbook {
   });
 }
 
+function buildProfessionalsWorkbook(sheets: ProfessionalSheet[]): ExcelJS.Workbook {
+  const wb = new ExcelJS.Workbook();
+  for (const sheet of sheets) {
+    const ws = wb.addWorksheet(sheet.sheetName.slice(0, 31));
+    writeSheet(ws, PROFESSIONAL_EXPORT_HEADERS, sheet.rows);
+  }
+  return wb;
+}
+
+function buildSucursalesWorkbook(rows: SucursalExportRow[]): ExcelJS.Workbook {
+  return buildSingleSheetWorkbook("sucursales", SUCURSAL_EXPORT_HEADERS, rows);
+}
+
 async function workbookToBuffer(wb: ExcelJS.Workbook): Promise<Buffer> {
   const content = await wb.xlsx.writeBuffer();
   return Buffer.isBuffer(content) ? content : Buffer.from(content);
@@ -126,4 +143,20 @@ export async function generateServicesWorkbookBuffer(
 ): Promise<Buffer> {
   const wb = buildServicesWorkbook(rows);
   return workbookToBuffer(wb);
+}
+
+export async function generateProfessionalsWorkbookFile(
+  sheets: ProfessionalSheet[],
+  filePath: string
+): Promise<void> {
+  const wb = buildProfessionalsWorkbook(sheets);
+  await wb.xlsx.writeFile(filePath);
+}
+
+export async function generateSucursalesWorkbookFile(
+  rows: SucursalExportRow[],
+  filePath: string
+): Promise<void> {
+  const wb = buildSucursalesWorkbook(rows);
+  await wb.xlsx.writeFile(filePath);
 }
