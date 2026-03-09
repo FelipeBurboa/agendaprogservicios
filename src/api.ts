@@ -10,6 +10,24 @@ import type {
 const API_BASE = "https://agendapro.com/api/views/admin";
 const DEFAULT_FROM_URL = "https://app.agendapro.com/bookings";
 
+export class RequestAbortedError extends Error {
+  constructor(message = "Request aborted") {
+    super(message);
+    this.name = "RequestAbortedError";
+  }
+}
+
+export function isAbortError(error: unknown): boolean {
+  return error instanceof RequestAbortedError ||
+    (error instanceof Error && error.name === "AbortError");
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw new RequestAbortedError();
+  }
+}
+
 export function apiHeaders(token: string): Record<string, string> {
   return {
     accept: "application/json",
@@ -22,19 +40,50 @@ export function apiHeaders(token: string): Record<string, string> {
   };
 }
 
-export function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+export function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  throwIfAborted(signal);
+
+  return new Promise((resolve, reject) => {
+    const timeoutId = setTimeout(() => {
+      cleanup();
+      resolve();
+    }, ms);
+
+    const onAbort = () => {
+      cleanup();
+      reject(new RequestAbortedError());
+    };
+
+    const cleanup = () => {
+      clearTimeout(timeoutId);
+      signal?.removeEventListener("abort", onAbort);
+    };
+
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
 }
 
 export async function apiGet<T>(
   token: string,
   path: string,
-  maxRetries = 3
+  maxRetries = 3,
+  signal?: AbortSignal
 ): Promise<T> {
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    const res = await fetch(`${API_BASE}/${path}`, {
-      headers: apiHeaders(token),
-    });
+    throwIfAborted(signal);
+
+    let res: Response;
+    try {
+      res = await fetch(`${API_BASE}/${path}`, {
+        headers: apiHeaders(token),
+        signal,
+      });
+    } catch (error) {
+      if (isAbortError(error)) {
+        throw error;
+      }
+      throw error;
+    }
 
     if (res.ok) {
       return (await res.json()) as T;
@@ -45,7 +94,7 @@ export async function apiGet<T>(
       console.log(
         `    HTTP ${res.status}, retrying in ${wait / 1000}s (attempt ${attempt + 1}/${maxRetries})...`
       );
-      await sleep(wait);
+      await sleep(wait, signal);
       continue;
     }
 
@@ -55,11 +104,16 @@ export async function apiGet<T>(
   throw new Error("API request failed after exhausting retries");
 }
 
-export async function fetchLocations(token: string): Promise<Location[]> {
+export async function fetchLocations(
+  token: string,
+  signal?: AbortSignal
+): Promise<Location[]> {
   console.log("Fetching calendar locations...");
   const data = await apiGet<LocationsResponse>(
     token,
-    "v2/calendar/locations?per_page=8&search_key=&page=1"
+    "v2/calendar/locations?per_page=8&search_key=&page=1",
+    3,
+    signal
   );
   console.log(`  Found ${data.locations.length} locations`);
   return data.locations;
@@ -78,18 +132,21 @@ export async function fetchAllBookings(
   token: string,
   locationId: number,
   start: string,
-  end: string
+  end: string,
+  signal?: AbortSignal
 ): Promise<BookingsResponse> {
   const basePath = `v2/calendar/bookings?start=${start}&end=${end}&location_id=${locationId}&time_resource=false&per_page=100`;
-  const data = await apiGet<BookingsResponse>(token, `${basePath}&page=1`);
+  const data = await apiGet<BookingsResponse>(token, `${basePath}&page=1`, 3, signal);
   const allUsers = [...data.calendar_users_events];
   const totalPages = data.total_pages ?? 1;
 
   for (let page = 2; page <= totalPages; page++) {
-    await sleep(300);
+    await sleep(300, signal);
     const pageData = await apiGet<BookingsResponse>(
       token,
-      `${basePath}&page=${page}`
+      `${basePath}&page=${page}`,
+      3,
+      signal
     );
     allUsers.push(...pageData.calendar_users_events);
   }

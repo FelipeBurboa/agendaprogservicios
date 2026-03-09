@@ -154,6 +154,7 @@ export interface BookingParams {
   email: string;
   password: string;
   months: number;
+  past_months?: number;
 }
 
 export interface ScrapedBookings {
@@ -301,3 +302,5 @@ export const ALT_FILL: ExcelJS.Fill = {
   pattern: "solid",
   fgColor: { argb: "FFD6E4F0" },
 };
+
+
