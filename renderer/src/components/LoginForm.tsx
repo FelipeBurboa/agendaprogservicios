@@ -41,6 +41,8 @@ export default function LoginForm({ initialData, onSubmit }: Props) {
   const [email, setEmail] = useState(initialData.email);
   const [password, setPassword] = useState(initialData.password);
   const [months, setMonths] = useState(initialData.months);
+  const [pastMonths, setPastMonths] = useState(initialData.pastMonths ?? 1);
+  const [includePastMonths, setIncludePastMonths] = useState(Boolean(initialData.pastMonths));
   const [bookingType, setBookingType] = useState<BookingType>(initialData.bookingType);
   const [exportType, setExportType] = useState<ExportType>(initialData.exportType);
   const [submitting, setSubmitting] = useState(false);
@@ -52,7 +54,14 @@ export default function LoginForm({ initialData, onSubmit }: Props) {
     e.preventDefault();
     setSubmitting(true);
     try {
-      await onSubmit({ email, password, months, bookingType, exportType });
+      await onSubmit({
+        email,
+        password,
+        months,
+        pastMonths: showBookingsOptions && includePastMonths ? pastMonths : undefined,
+        bookingType,
+        exportType,
+      });
     } finally {
       setSubmitting(false);
     }
@@ -135,6 +144,43 @@ export default function LoginForm({ initialData, onSubmit }: Props) {
               onChange={(e) => setMonths(parseInt(e.target.value, 10) || 1)}
               className="w-full px-4 py-2.5 rounded-lg bg-surface-light border border-border text-white outline-none focus:border-brand-purple transition-colors"
             />
+          </div>
+
+          <div className="rounded-xl border border-border bg-surface-light/70 px-4 py-3 space-y-3">
+            <label className="flex items-start gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={includePastMonths}
+                onChange={(e) => setIncludePastMonths(e.target.checked)}
+                className="mt-1 h-4 w-4 rounded border-border bg-surface-light text-brand-purple focus:ring-brand-purple"
+              />
+              <span>
+                <span className="block text-sm font-medium text-white/85">
+                  Incluir meses pasados
+                </span>
+                <span className="block text-xs text-white/50 mt-1">
+                  Amplia la busqueda hacia atras sin cambiar la exportacion futura actual.
+                </span>
+              </span>
+            </label>
+
+            {includePastMonths && (
+              <div>
+                <label className="block text-sm text-white/60 mb-1.5">
+                  Meses hacia atras
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  max={12}
+                  step={1}
+                  required={includePastMonths}
+                  value={pastMonths}
+                  onChange={(e) => setPastMonths(parseInt(e.target.value, 10) || 1)}
+                  className="w-full px-4 py-2.5 rounded-lg bg-surface-light border border-border text-white outline-none focus:border-brand-purple transition-colors"
+                />
+              </div>
+            )}
           </div>
 
           <fieldset>
@@ -240,6 +286,7 @@ function RadioOption({
     </label>
   );
 }
+
 
 
 

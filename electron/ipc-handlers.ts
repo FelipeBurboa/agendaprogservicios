@@ -1,16 +1,23 @@
 import { BrowserWindow, dialog, ipcMain } from "electron";
 import * as path from "path";
 import {
-  scrapeBookings,
+  prepareBookingsScrape,
+  scrapeBookingsWithContext,
   scrapeProfessionals,
   scrapeServices,
 } from "../src/scraper.js";
+import {
+  calculateBookingsEstimatedMs,
+  formatDurationMs,
+} from "../src/bookings-runtime.js";
+import { fmtDate } from "../src/dates.js";
 import {
   generateProfessionalsWorkbookFile,
   generateServicesWorkbookFile,
   generateSucursalesWorkbookFile,
   generateWorkbookFile,
 } from "../src/excel.js";
+import type { BookingsScrapeContext } from "../src/scraper.js";
 import type {
   ProgressData,
   ResultMetric,
@@ -36,14 +43,46 @@ function metric(
   return { label, value, tone };
 }
 
+function buildBookingsEstimateMessage(context: BookingsScrapeContext): string {
+  const totalRequests = context.locations.length * context.days.length;
+  const estimatedDuration = formatDurationMs(
+    calculateBookingsEstimatedMs(totalRequests)
+  );
+
+  return [
+    `Rango ${fmtDate(context.rangeStart)} a ${fmtDate(context.rangeEnd)}`,
+    `${context.days.length} dias`,
+    `${context.locations.length} sucursales`,
+    `${totalRequests} solicitudes`,
+    `Aprox. ${estimatedDuration}`,
+  ].join(" | ");
+}
+
 async function runBookingsExport(
+  win: BrowserWindow,
   params: ScraperParams
 ): Promise<ScraperResult> {
-  const result = await scrapeBookings({
+  emitProgress(win, 0, 1, "Iniciando sesion y calculando carga de exportacion...");
+
+  const context = await prepareBookingsScrape({
     email: params.email,
     password: params.password,
     months: params.months,
+    past_months: params.pastMonths,
   });
+
+  const totalRequests = context.locations.length * context.days.length;
+  const progressTotal = Math.max(totalRequests, 1);
+  emitProgress(win, 0, progressTotal, buildBookingsEstimateMessage(context));
+
+  const result = await scrapeBookingsWithContext(context);
+
+  emitProgress(
+    win,
+    progressTotal,
+    progressTotal,
+    "Generando archivos Excel..."
+  );
 
   const files: string[] = [];
   let reservedCount = 0;
@@ -92,7 +131,7 @@ async function runServicesExport(
   win: BrowserWindow,
   params: ScraperParams
 ): Promise<ScraperResult> {
-  emitProgress(win, 1, 3, "Iniciando sesión y extrayendo servicios...");
+  emitProgress(win, 1, 3, "Iniciando sesion y extrayendo servicios...");
   const rows = await scrapeServices({
     email: params.email,
     password: params.password,
@@ -114,7 +153,7 @@ async function runProfessionalsExport(
   win: BrowserWindow,
   params: ScraperParams
 ): Promise<ScraperResult> {
-  emitProgress(win, 1, 4, "Iniciando sesión y extrayendo profesionales...");
+  emitProgress(win, 1, 4, "Iniciando sesion y extrayendo profesionales...");
   const result = await scrapeProfessionals({
     email: params.email,
     password: params.password,
@@ -139,7 +178,7 @@ async function runProfessionalsExport(
     await generateSucursalesWorkbookFile(result.sucursales, sucursalesFilePath);
     files.push(sucursalesFilePath);
   } else {
-    emitProgress(win, 4, 4, "Exportación finalizada");
+    emitProgress(win, 4, 4, "Exportacion finalizada");
   }
 
   return {
@@ -193,7 +232,7 @@ export function registerIpcHandlers(): void {
             return await runProfessionalsExport(win, params);
           case "bookings":
           default:
-            return await runBookingsExport(params);
+            return await runBookingsExport(win, params);
         }
       } finally {
         console.log = originalLog;

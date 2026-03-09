@@ -1,5 +1,10 @@
 import { useState } from "react";
-import type { ExportType, ProgressData, ScraperParams, ScraperResult } from "./types.ts";
+import type {
+  ExportType,
+  ProgressData,
+  ScraperParams,
+  ScraperResult,
+} from "./types.ts";
 import ErrorView from "./components/ErrorView.tsx";
 import LoginForm from "./components/LoginForm.tsx";
 import ProgressView from "./components/ProgressView.tsx";
@@ -7,15 +12,27 @@ import ResultsView from "./components/ResultsView.tsx";
 
 type AppView = "form" | "progress" | "results" | "error";
 
-function getInitialProgressMessage(exportType: ExportType): string {
+function getInitialProgress(exportType: ExportType): ProgressData {
   switch (exportType) {
     case "services":
-      return "Preparando exportación de servicios...";
+      return {
+        current: 0,
+        total: 1,
+        message: "Preparando exportacion de servicios...",
+      };
     case "professionals":
-      return "Preparando exportación de profesionales...";
+      return {
+        current: 0,
+        total: 1,
+        message: "Preparando exportacion de profesionales...",
+      };
     case "bookings":
     default:
-      return "Iniciando sesión...";
+      return {
+        current: 0,
+        total: 1,
+        message: "Iniciando sesion y calculando carga de exportacion...",
+      };
   }
 }
 
@@ -32,6 +49,7 @@ export default function App() {
     email: "",
     password: "",
     months: 1,
+    pastMonths: undefined,
     bookingType: "all",
     exportType: "bookings",
   });
@@ -43,11 +61,7 @@ export default function App() {
     if (!savePath) return;
 
     setView("progress");
-    setProgress({
-      current: 0,
-      total: 0,
-      message: getInitialProgressMessage(data.exportType),
-    });
+    setProgress(getInitialProgress(data.exportType));
 
     window.electronAPI.removeProgressListeners();
     window.electronAPI.onProgress((nextProgress) => setProgress(nextProgress));
@@ -79,7 +93,9 @@ export default function App() {
       {view === "form" && (
         <LoginForm initialData={formData} onSubmit={handleStart} />
       )}
-      {view === "progress" && <ProgressView progress={progress} />}
+      {view === "progress" && (
+        <ProgressView progress={progress} exportType={formData.exportType} />
+      )}
       {view === "results" && results && (
         <ResultsView results={results} onRestart={handleRestart} />
       )}
@@ -89,5 +105,3 @@ export default function App() {
     </div>
   );
 }
-
-

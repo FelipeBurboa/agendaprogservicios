@@ -8,6 +8,7 @@ export interface ScraperParams {
   email: string;
   password: string;
   months: number;
+  pastMonths?: number;
   bookingType: BookingType;
   exportType: ExportType;
   savePath: string;
