@@ -1,11 +1,40 @@
 import { useState } from "react";
-import type { ScraperParams, ScraperResult, ProgressData } from "./types.ts";
+import type {
+  ExportType,
+  ProgressData,
+  ScraperParams,
+  ScraperResult,
+} from "./types.ts";
+import ErrorView from "./components/ErrorView.tsx";
 import LoginForm from "./components/LoginForm.tsx";
 import ProgressView from "./components/ProgressView.tsx";
 import ResultsView from "./components/ResultsView.tsx";
-import ErrorView from "./components/ErrorView.tsx";
 
 type AppView = "form" | "progress" | "results" | "error";
+
+function getInitialProgress(exportType: ExportType): ProgressData {
+  switch (exportType) {
+    case "services":
+      return {
+        current: 0,
+        total: 1,
+        message: "Preparando exportacion de servicios...",
+      };
+    case "professionals":
+      return {
+        current: 0,
+        total: 1,
+        message: "Preparando exportacion de profesionales...",
+      };
+    case "bookings":
+    default:
+      return {
+        current: 0,
+        total: 1,
+        message: "Iniciando sesion y calculando carga de exportacion...",
+      };
+  }
+}
 
 export default function App() {
   const [view, setView] = useState<AppView>("form");
@@ -20,22 +49,22 @@ export default function App() {
     email: "",
     password: "",
     months: 1,
+    pastMonths: undefined,
     bookingType: "all",
+    exportType: "bookings",
   });
 
   const handleStart = async (data: Omit<ScraperParams, "savePath">) => {
     setFormData(data);
 
-    // Ask user to pick save folder first
     const savePath = await window.electronAPI.selectSaveFolder();
-    if (!savePath) return; // User cancelled
+    if (!savePath) return;
 
     setView("progress");
-    setProgress({ current: 0, total: 0, message: "Iniciando sesión..." });
+    setProgress(getInitialProgress(data.exportType));
 
-    // Listen for progress updates
     window.electronAPI.removeProgressListeners();
-    window.electronAPI.onProgress((p) => setProgress(p));
+    window.electronAPI.onProgress((nextProgress) => setProgress(nextProgress));
 
     try {
       const result = await window.electronAPI.runScraper({
@@ -60,11 +89,13 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-bg flex flex-col items-center px-6 pt-8 pb-10">
+    <div className="min-h-screen w-full bg-bg flex flex-col items-center px-6 pt-4 pb-6">
       {view === "form" && (
         <LoginForm initialData={formData} onSubmit={handleStart} />
       )}
-      {view === "progress" && <ProgressView progress={progress} />}
+      {view === "progress" && (
+        <ProgressView progress={progress} exportType={formData.exportType} />
+      )}
       {view === "results" && results && (
         <ResultsView results={results} onRestart={handleRestart} />
       )}

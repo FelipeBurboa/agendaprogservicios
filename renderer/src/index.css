@@ -11,13 +11,26 @@
   --color-bg: #0E0B16;
 }
 
+html,
+body,
+#root {
+  height: 100%;
+}
+
 * {
   font-family: 'DM Sans', sans-serif;
 }
 
 body {
-  overflow: hidden;
+  margin: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
   user-select: none;
+  background: #0E0B16;
+}
+
+#root {
+  min-height: 100%;
 }
 
 /* Custom scrollbar */
