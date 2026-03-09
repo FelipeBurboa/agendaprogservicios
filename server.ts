@@ -1,8 +1,15 @@
-import express, { type Request, type Response, type NextFunction } from "express";
-import { scrapeLocations, scrapeBookings, scrapeServices } from "./src/scraper.js";
+import express, { type NextFunction, type Request, type Response } from "express";
 import {
-  generateWorkbookFile,
+  scrapeBookings,
+  scrapeLocations,
+  scrapeProfessionals,
+  scrapeServices,
+} from "./src/scraper.js";
+import {
+  generateProfessionalsWorkbookFile,
   generateServicesWorkbookFile,
+  generateSucursalesWorkbookFile,
+  generateWorkbookFile,
 } from "./src/excel.js";
 import type { BookingParams } from "./src/types.js";
 
@@ -95,6 +102,44 @@ app.post("/api/services", async (req: Request, res: Response) => {
     res.json(rows);
   } catch (err) {
     console.error("Error in /api/services:", err);
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+app.post("/api/professionals", async (req: Request, res: Response) => {
+  const creds = validateCredentials(req.body);
+  if (typeof creds === "string") {
+    res.status(400).json({ error: creds });
+    return;
+  }
+
+  try {
+    const result = await scrapeProfessionals(creds);
+    const format = (req.query.format as string)?.toLowerCase();
+
+    if (format === "xlsx") {
+      const files = ["professionals.xlsx"];
+      await generateProfessionalsWorkbookFile(result.sheets, "professionals.xlsx");
+
+      if (result.hasMultipleSucursales) {
+        await generateSucursalesWorkbookFile(result.sucursales, "sucursales.xlsx");
+        files.push("sucursales.xlsx");
+      }
+
+      res.json({
+        files,
+        professionals: result.professionals.length,
+        sucursales: result.sucursales.length,
+      });
+      return;
+    }
+
+    res.json({
+      professionals: result.professionals,
+      sucursales: result.sucursales,
+    });
+  } catch (err) {
+    console.error("Error in /api/professionals:", err);
     res.status(500).json({ error: (err as Error).message });
   }
 });
@@ -205,6 +250,7 @@ app.listen(PORT, () => {
   console.log("Endpoints:");
   console.log("  POST /api/locations");
   console.log("  POST /api/services           (?format=json|xlsx)");
+  console.log("  POST /api/professionals      (?format=json|xlsx)");
   console.log("  POST /api/bookings           (?format=json|xlsx)  - both reserved + blocked");
   console.log("  POST /api/bookings/reserved  (?format=json|xlsx)");
   console.log("  POST /api/bookings/blocked   (?format=json|xlsx)");

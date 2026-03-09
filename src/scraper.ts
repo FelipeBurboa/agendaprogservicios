@@ -1,17 +1,28 @@
 import { loginAndGetToken, checkTokenExpiry } from "./auth.js";
 import {
-  fetchLocations,
+  fetchAdminLocations,
   fetchAllBookings,
+  fetchLocations,
   fetchServiceCategories,
+  fetchServiceProviders,
   sleep,
 } from "./api.js";
 import { addMonths, fmtDate, dailyChunks } from "./dates.js";
 import type {
+  AgendaProAddressComponent,
+  AgendaProLocationDetail,
+  AgendaProLocationAttachment,
+  AgendaProProviderAttachment,
+  AgendaProServiceProvider,
   BookingParams,
   Credentials,
   Location,
+  ProfessionalExportRow,
+  ProfessionalSheet,
   ScrapedBookings,
+  ScrapedProfessionals,
   ServiceExportRow,
+  SucursalExportRow,
 } from "./types.js";
 
 function logTokenStatus(token: string): void {
@@ -30,23 +41,62 @@ function logTokenStatus(token: string): void {
   console.log(`  Token valid for ${h}h ${m}m`);
 }
 
-export async function authenticateAgendaPro(
-  credentials: Credentials
-): Promise<string> {
-  console.log("Launching browser for login...");
-  const token = await loginAndGetToken(credentials.email, credentials.password);
-  logTokenStatus(token);
-  return token;
+function normalizeText(value: string | null | undefined): string {
+  return typeof value === "string" ? value.trim() : "";
 }
 
-/** Authenticate and return the list of locations. */
-export async function scrapeLocations(
-  email: string,
-  password: string
-): Promise<{ token: string; locations: Location[] }> {
-  const token = await authenticateAgendaPro({ email, password });
-  const locations = await fetchLocations(token);
-  return { token, locations };
+function firstImageUrl(
+  attachments?: Array<AgendaProLocationAttachment | AgendaProProviderAttachment>
+): string {
+  const image = attachments?.find((attachment) => normalizeText(attachment.image) !== "")?.image;
+  return normalizeText(image);
+}
+
+function getAddressComponent(
+  components: AgendaProAddressComponent[] | null | undefined,
+  type: string
+): string {
+  return normalizeText(
+    components?.find((component) => component.types.includes(type))?.long_name
+  );
+}
+
+function formatStructuredAddress(
+  components: AgendaProAddressComponent[] | null | undefined
+): string {
+  if (!components || components.length === 0) {
+    return "";
+  }
+
+  const route = getAddressComponent(components, "route");
+  const streetNumber = getAddressComponent(components, "street_number");
+  const postalCode = getAddressComponent(components, "postal_code");
+  const locality =
+    getAddressComponent(components, "locality") ||
+    getAddressComponent(components, "administrative_area_level_3") ||
+    getAddressComponent(components, "administrative_area_level_2");
+  const region = getAddressComponent(components, "administrative_area_level_1");
+  const country = getAddressComponent(components, "country");
+
+  const firstLine = [route, streetNumber].filter(Boolean).join(" ").trim();
+  const cityLine = [postalCode, locality].filter(Boolean).join(" ").trim();
+  const parts = [firstLine, cityLine, region, country].filter(Boolean);
+
+  return parts.filter((part, index) => parts.indexOf(part) === index).join(", ");
+}
+
+function formatLocationAddress(location: AgendaProLocationDetail): string {
+  const structuredAddress = formatStructuredAddress(location.address);
+  if (structuredAddress !== "") {
+    return structuredAddress;
+  }
+
+  return [
+    normalizeText(location.second_address),
+    normalizeText(location.detailed_address),
+  ]
+    .filter(Boolean)
+    .join(", ");
 }
 
 function roundCurrency(value: number | null | undefined): number {
@@ -69,14 +119,115 @@ function mapServiceRow(
 ): ServiceExportRow {
   const duration = Number(service.duration ?? 0);
   return {
-    nombre: service.name ?? "",
-    descripcion: service.description ?? "",
+    nombre: normalizeText(service.name),
+    descripcion: normalizeText(service.description),
     precio: roundCurrency(service.price),
     duracion_minutos: duration,
     duracion_paciente: duration,
     activo: Boolean(service.active),
-    tag,
+    tag: normalizeText(tag),
   };
+}
+
+function mapProfessionalRow(
+  provider: AgendaProServiceProvider,
+  locationName: string
+): ProfessionalExportRow {
+  return {
+    agenda_pro_provider_id: provider.id,
+    agenda_pro_location_id: provider.location_id ?? null,
+    nombre: normalizeText(provider.public_name),
+    activo: Boolean(provider.active),
+    orden: Number.isFinite(Number(provider.order)) ? Number(provider.order) : 0,
+    foto_url: firstImageUrl(provider.service_provider_attachments),
+    sucursal: normalizeText(locationName),
+  };
+}
+
+function mapSucursalRow(location: AgendaProLocationDetail): SucursalExportRow {
+  return {
+    agenda_pro_location_id: location.id,
+    nombre: normalizeText(location.name),
+    direccion: formatLocationAddress(location),
+    telefono: normalizeText(location.phone),
+    telefono_secundario: normalizeText(location.secondary_phone),
+    email: normalizeText(location.email),
+    activo: Boolean(location.active),
+    lat: location.latitude ?? null,
+    lng: location.longitude ?? null,
+    foto_url: firstImageUrl(location.location_attachments),
+  };
+}
+
+function sortByOrderThenName(
+  left: Pick<ProfessionalExportRow, "orden" | "nombre">,
+  right: Pick<ProfessionalExportRow, "orden" | "nombre">
+): number {
+  return left.orden - right.orden || left.nombre.localeCompare(right.nombre);
+}
+
+function buildProfessionalSheets(
+  professionals: ProfessionalExportRow[],
+  referencedLocationIds: number[],
+  matchedLocations: AgendaProLocationDetail[],
+  hasMultipleSucursales: boolean
+): ProfessionalSheet[] {
+  if (!hasMultipleSucursales) {
+    return [
+      {
+        sheetName: "profesionales",
+        rows: [...professionals].sort(sortByOrderThenName),
+      },
+    ];
+  }
+
+  const locationNameById = new Map(matchedLocations.map((location) => [location.id, normalizeText(location.name)]));
+  const orderedIds = [
+    ...matchedLocations.map((location) => location.id),
+    ...referencedLocationIds.filter((locationId) => !locationNameById.has(locationId)),
+  ];
+
+  const sheets = orderedIds.map((locationId) => {
+    const rows = professionals
+      .filter((professional) => professional.agenda_pro_location_id === locationId)
+      .sort(sortByOrderThenName);
+
+    return {
+      sheetName: locationNameById.get(locationId) || `Sin sucursal ${locationId}`,
+      rows,
+    };
+  });
+
+  const unassignedRows = professionals
+    .filter((professional) => professional.agenda_pro_location_id === null)
+    .sort(sortByOrderThenName);
+
+  if (unassignedRows.length > 0) {
+    sheets.push({
+      sheetName: "Sin sucursal",
+      rows: unassignedRows,
+    });
+  }
+
+  return sheets;
+}
+
+export async function authenticateAgendaPro(
+  credentials: Credentials
+): Promise<string> {
+  console.log("Launching browser for login...");
+  const token = await loginAndGetToken(credentials.email, credentials.password);
+  logTokenStatus(token);
+  return token;
+}
+
+export async function scrapeLocations(
+  email: string,
+  password: string
+): Promise<{ token: string; locations: Location[] }> {
+  const token = await authenticateAgendaPro({ email, password });
+  const locations = await fetchLocations(token);
+  return { token, locations };
 }
 
 export async function scrapeServices(
@@ -110,7 +261,59 @@ export async function scrapeServices(
   return rows;
 }
 
-/** Full scraping pipeline: login, fetch locations, fetch all bookings. */
+export async function scrapeProfessionals(
+  credentials: Credentials
+): Promise<ScrapedProfessionals> {
+  const token = await authenticateAgendaPro(credentials);
+  const [locations, providers] = await Promise.all([
+    fetchAdminLocations(token),
+    fetchServiceProviders(token),
+  ]);
+
+  const referencedLocationIds = [
+    ...new Set(
+      providers
+        .map((provider) => provider.location_id)
+        .filter((locationId): locationId is number => typeof locationId === "number")
+    ),
+  ];
+  const referencedLocationIdSet = new Set(referencedLocationIds);
+  const matchedLocations = locations.filter((location) => referencedLocationIdSet.has(location.id));
+  const locationById = new Map(matchedLocations.map((location) => [location.id, location]));
+  const locationOrderById = new Map(matchedLocations.map((location, index) => [location.id, index]));
+
+  const professionals = providers
+    .map((provider) =>
+      mapProfessionalRow(provider, locationById.get(provider.location_id ?? -1)?.name ?? "")
+    )
+    .sort(
+      (left, right) =>
+        (locationOrderById.get(left.agenda_pro_location_id ?? -1) ?? Number.MAX_SAFE_INTEGER) -
+          (locationOrderById.get(right.agenda_pro_location_id ?? -1) ?? Number.MAX_SAFE_INTEGER) ||
+        sortByOrderThenName(left, right)
+    );
+
+  const sucursales = matchedLocations.map(mapSucursalRow);
+  const hasMultipleSucursales = referencedLocationIds.length > 1;
+  const sheets = buildProfessionalSheets(
+    professionals,
+    referencedLocationIds,
+    matchedLocations,
+    hasMultipleSucursales
+  );
+
+  console.log(
+    `  Normalized ${professionals.length} professionals across ${referencedLocationIds.length} referenced sucursales`
+  );
+
+  return {
+    professionals,
+    sucursales,
+    sheets,
+    hasMultipleSucursales,
+  };
+}
+
 export async function scrapeBookings(
   params: BookingParams
 ): Promise<ScrapedBookings> {

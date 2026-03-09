@@ -107,6 +107,47 @@ export interface AgendaProServiceCategory {
   services?: AgendaProCatalogService[];
 }
 
+export interface AgendaProAddressComponent {
+  long_name: string;
+  short_name: string;
+  types: string[];
+}
+
+export interface AgendaProLocationAttachment {
+  id: number;
+  image?: string | null;
+}
+
+export interface AgendaProLocationDetail {
+  id: number;
+  name: string;
+  phone: string | null;
+  secondary_phone: string | null;
+  email: string | null;
+  active: boolean;
+  latitude: number | null;
+  longitude: number | null;
+  address?: AgendaProAddressComponent[] | null;
+  detailed_address?: string | null;
+  second_address?: string | null;
+  location_attachments?: AgendaProLocationAttachment[];
+}
+
+export interface AgendaProProviderAttachment {
+  id: number;
+  image?: string | null;
+  thumb_image?: string | null;
+}
+
+export interface AgendaProServiceProvider {
+  id: number;
+  location_id: number | null;
+  public_name: string;
+  active: boolean;
+  order: number;
+  service_provider_attachments?: AgendaProProviderAttachment[];
+}
+
 // ─── Scraper params / results ────────────────────────────────────────────────
 
 export interface BookingParams {
@@ -129,6 +170,41 @@ export interface ServiceExportRow {
   duracion_paciente: number;
   activo: boolean;
   tag: string;
+}
+
+export interface ProfessionalExportRow {
+  agenda_pro_provider_id: number;
+  agenda_pro_location_id: number | null;
+  nombre: string;
+  activo: boolean;
+  orden: number;
+  foto_url: string;
+  sucursal: string;
+}
+
+export interface SucursalExportRow {
+  agenda_pro_location_id: number;
+  nombre: string;
+  direccion: string;
+  telefono: string;
+  telefono_secundario: string;
+  email: string;
+  activo: boolean;
+  lat: number | null;
+  lng: number | null;
+  foto_url: string;
+}
+
+export interface ProfessionalSheet {
+  sheetName: string;
+  rows: ProfessionalExportRow[];
+}
+
+export interface ScrapedProfessionals {
+  professionals: ProfessionalExportRow[];
+  sucursales: SucursalExportRow[];
+  sheets: ProfessionalSheet[];
+  hasMultipleSucursales: boolean;
 }
 
 // ─── Excel constants ─────────────────────────────────────────────────────────
@@ -170,6 +246,29 @@ export const SERVICE_EXPORT_HEADERS = [
   "duracion_paciente",
   "activo",
   "tag",
+] as const;
+
+export const PROFESSIONAL_EXPORT_HEADERS = [
+  "agenda_pro_provider_id",
+  "agenda_pro_location_id",
+  "nombre",
+  "activo",
+  "orden",
+  "foto_url",
+  "sucursal",
+] as const;
+
+export const SUCURSAL_EXPORT_HEADERS = [
+  "agenda_pro_location_id",
+  "nombre",
+  "direccion",
+  "telefono",
+  "telefono_secundario",
+  "email",
+  "activo",
+  "lat",
+  "lng",
+  "foto_url",
 ] as const;
 
 export const HEADER_FONT: Partial<ExcelJS.Font> = {
