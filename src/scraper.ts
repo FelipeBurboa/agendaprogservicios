@@ -276,6 +276,9 @@ export async function authenticateAgendaPro(
 ): Promise<string> {
   console.log("Launching browser for login...");
   const token = await loginAndGetToken(credentials.email, credentials.password);
+  if (!token || token.split(".").length !== 3) {
+    console.error(`  WARNING: Token does not look like a valid JWT (length=${token?.length ?? 0})`);
+  }
   logTokenStatus(token);
   return token;
 }
