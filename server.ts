@@ -1,11 +1,13 @@
 import express, { type NextFunction, type Request, type Response } from "express";
 import {
+  authenticateWithMfaCode,
   prepareBookingsScrape,
   scrapeLocations,
   scrapeProfessionals,
   scrapeServices,
   scrapeBookingsWithContext,
 } from "./src/scraper.js";
+import { MfaRequiredError, MfaCodeError } from "./src/auth.js";
 import {
   generateProfessionalsWorkbookFile,
   generateServicesWorkbookFile,
@@ -59,6 +61,53 @@ function validateCredentials(
     return "Missing or invalid 'password' in request body";
   }
   return { email, password };
+}
+
+function getMfaFields(body: any): { code?: string; session?: string } {
+  const code =
+    typeof body?.mfa_code === "string" ? body.mfa_code.trim() : undefined;
+  const session =
+    typeof body?.mfa_session === "string" ? body.mfa_session : undefined;
+  return { code: code || undefined, session };
+}
+
+/**
+ * If the request carries an MFA code + session, verify it now so the scrape
+ * call below hits the cached token. Phase 2 of the stateless handshake.
+ */
+async function preauthIfMfaProvided(
+  creds: { email: string; password: string },
+  body: any
+): Promise<void> {
+  const { code, session } = getMfaFields(body);
+  if (code && session) {
+    await authenticateWithMfaCode(creds, code, session);
+  }
+}
+
+/**
+ * Map an auth error to the 401 MFA handshake response. Returns true if handled.
+ * Phase 1: the scrape's internal login throws MfaRequiredError (code emailed);
+ * we hand the session back so the client can re-POST with mfa_code + mfa_session.
+ */
+function handleAuthError(res: Response, err: unknown): boolean {
+  if (err instanceof MfaRequiredError) {
+    sendJsonOnce(res, 401, {
+      error: err.message,
+      mfa_required: true,
+      mfa_session: err.session,
+    });
+    return true;
+  }
+  if (err instanceof MfaCodeError) {
+    sendJsonOnce(res, 401, {
+      error: err.message,
+      mfa_required: true,
+      mfa_session: err.session ?? null,
+    });
+    return true;
+  }
+  return false;
 }
 
 function validateBookingParams(body: any): BookingParams | string {
@@ -188,6 +237,11 @@ async function handleBookingsRequest(
   try {
     applyRequestTimeout(req, res, BOOKINGS_PREP_TIMEOUT_MS, onTimeout);
 
+    await preauthIfMfaProvided(
+      { email: params.email, password: params.password },
+      req.body
+    );
+
     const context = await prepareBookingsScrape(params, {
       signal: abortController.signal,
       shouldAbort,
@@ -289,6 +343,8 @@ async function handleBookingsRequest(
       return;
     }
 
+    if (handleAuthError(res, err)) return;
+
     console.error(`Error in ${req.path}:`, err);
     sendJsonOnce(res, 500, { error: (err as Error).message });
   } finally {
@@ -304,9 +360,11 @@ app.post("/api/locations", async (req: Request, res: Response) => {
     return;
   }
   try {
+    await preauthIfMfaProvided(creds, req.body);
     const { locations } = await scrapeLocations(creds.email, creds.password);
     res.json(locations);
   } catch (err) {
+    if (handleAuthError(res, err)) return;
     console.error("Error in /api/locations:", err);
     res.status(500).json({ error: (err as Error).message });
   }
@@ -320,6 +378,7 @@ app.post("/api/services", async (req: Request, res: Response) => {
   }
 
   try {
+    await preauthIfMfaProvided(creds, req.body);
     const rows = await scrapeServices(creds);
     const format = (req.query.format as string)?.toLowerCase();
 
@@ -334,6 +393,7 @@ app.post("/api/services", async (req: Request, res: Response) => {
 
     res.json(rows);
   } catch (err) {
+    if (handleAuthError(res, err)) return;
     console.error("Error in /api/services:", err);
     res.status(500).json({ error: (err as Error).message });
   }
@@ -347,6 +407,7 @@ app.post("/api/professionals", async (req: Request, res: Response) => {
   }
 
   try {
+    await preauthIfMfaProvided(creds, req.body);
     const result = await scrapeProfessionals(creds);
     const format = (req.query.format as string)?.toLowerCase();
 
@@ -372,6 +433,7 @@ app.post("/api/professionals", async (req: Request, res: Response) => {
       sucursales: result.sucursales,
     });
   } catch (err) {
+    if (handleAuthError(res, err)) return;
     console.error("Error in /api/professionals:", err);
     res.status(500).json({ error: (err as Error).message });
   }

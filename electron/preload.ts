@@ -32,6 +32,11 @@ export interface ProgressData {
   message: string;
 }
 
+export interface MfaRequiredData {
+  attempt: number;
+  error?: string;
+}
+
 contextBridge.exposeInMainWorld("electronAPI", {
   selectSaveFolder: (): Promise<string | null> =>
     ipcRenderer.invoke("scraper:select-folder"),
@@ -47,5 +52,33 @@ contextBridge.exposeInMainWorld("electronAPI", {
 
   removeProgressListeners: (): void => {
     ipcRenderer.removeAllListeners("scraper:progress");
+  },
+
+  // ─── MFA (two-factor) ───────────────────────────────────────────────────
+  onMfaRequired: (callback: (data: MfaRequiredData) => void): void => {
+    ipcRenderer.on("scraper:mfa-required", (_event, data: MfaRequiredData) =>
+      callback(data)
+    );
+  },
+
+  onMfaResent: (callback: () => void): void => {
+    ipcRenderer.on("scraper:mfa-resent", () => callback());
+  },
+
+  onMfaTimeout: (callback: () => void): void => {
+    ipcRenderer.on("scraper:mfa-timeout", () => callback());
+  },
+
+  submitMfaCode: (code: string): Promise<void> =>
+    ipcRenderer.invoke("scraper:mfa-submit", code),
+
+  resendMfaCode: (): Promise<void> => ipcRenderer.invoke("scraper:mfa-resend"),
+
+  cancelMfa: (): Promise<void> => ipcRenderer.invoke("scraper:mfa-cancel"),
+
+  removeMfaListeners: (): void => {
+    ipcRenderer.removeAllListeners("scraper:mfa-required");
+    ipcRenderer.removeAllListeners("scraper:mfa-resent");
+    ipcRenderer.removeAllListeners("scraper:mfa-timeout");
   },
 });
