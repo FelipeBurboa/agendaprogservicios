@@ -1,5 +1,32 @@
+import * as readline from "node:readline/promises";
+import { stdin, stdout } from "node:process";
 import { scrapeBookings } from "./src/scraper.js";
 import { generateWorkbookFile } from "./src/excel.js";
+import type { MfaCodeRequest } from "./src/types.js";
+
+async function promptMfaCode(request: MfaCodeRequest): Promise<string> {
+  const rl = readline.createInterface({ input: stdin, output: stdout });
+  try {
+    if (request.previousError) {
+      console.error(`\nCodigo incorrecto: ${request.previousError}`);
+    }
+    console.log(
+      `\nAutenticacion de dos factores (intento ${request.attempt}). ` +
+        "Se envio un codigo de 6 digitos a tu email."
+    );
+    const code = (
+      await rl.question("Codigo de 6 digitos (o 'r' para reenviar): ")
+    ).trim();
+    if (code.toLowerCase() === "r") {
+      await request.resend();
+      console.log("Nuevo codigo enviado.");
+      return promptMfaCode({ ...request, attempt: request.attempt, previousError: undefined });
+    }
+    return code;
+  } finally {
+    rl.close();
+  }
+}
 
 // ─── CLI args ────────────────────────────────────────────────────────────────
 
@@ -20,7 +47,10 @@ if (!Number.isFinite(months) || months < 1) {
 // ─── Main ────────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
-  const result = await scrapeBookings({ email, password, months });
+  const result = await scrapeBookings(
+    { email, password, months },
+    { onMfaCodeRequest: promptMfaCode }
+  );
 
   // Write reserved workbook
   await generateWorkbookFile(

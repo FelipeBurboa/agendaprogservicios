@@ -18,6 +18,7 @@ import {
   generateWorkbookFile,
 } from "../src/excel.js";
 import type { BookingsScrapeContext } from "../src/scraper.js";
+import type { MfaCodeCallback } from "../src/types.js";
 import type {
   ProgressData,
   ResultMetric,
@@ -33,6 +34,53 @@ function emitProgress(
 ): void {
   const data: ProgressData = { current, total, message };
   win.webContents.send("scraper:progress", data);
+}
+
+// ─── Interactive MFA (single concurrent run) ───────────────────────────────────
+// A scrape's login may need a 6-digit code from the user. We park the
+// onMfaCodeRequest promise here and resolve/reject it from renderer IPC calls.
+
+const MFA_WAIT_MS = 14 * 60 * 1000; // codes expire ~14 min
+
+interface PendingMfa {
+  resolve: (code: string) => void;
+  reject: (err: Error) => void;
+  timer: NodeJS.Timeout | null;
+  resend: () => Promise<void>;
+  win: BrowserWindow;
+}
+
+let pendingMfa: PendingMfa | null = null;
+
+function clearPendingMfa(): void {
+  if (pendingMfa?.timer) clearTimeout(pendingMfa.timer);
+  pendingMfa = null;
+}
+
+function armMfaTimer(): void {
+  if (!pendingMfa) return;
+  if (pendingMfa.timer) clearTimeout(pendingMfa.timer);
+  pendingMfa.timer = setTimeout(() => {
+    const p = pendingMfa;
+    pendingMfa = null;
+    if (p) {
+      p.win.webContents.send("scraper:mfa-timeout");
+      p.reject(new Error("MFA_TIMEOUT"));
+    }
+  }, MFA_WAIT_MS);
+}
+
+function buildMfaCallback(win: BrowserWindow): MfaCodeCallback {
+  return (request) =>
+    new Promise<string>((resolve, reject) => {
+      clearPendingMfa(); // supersede any stale request
+      pendingMfa = { resolve, reject, timer: null, resend: request.resend, win };
+      armMfaTimer();
+      win.webContents.send("scraper:mfa-required", {
+        attempt: request.attempt,
+        error: request.previousError,
+      });
+    });
 }
 
 function metric(
@@ -64,12 +112,15 @@ async function runBookingsExport(
 ): Promise<ScraperResult> {
   emitProgress(win, 0, 1, "Iniciando sesion y calculando carga de exportacion...");
 
-  const context = await prepareBookingsScrape({
-    email: params.email,
-    password: params.password,
-    months: params.months,
-    past_months: params.pastMonths,
-  });
+  const context = await prepareBookingsScrape(
+    {
+      email: params.email,
+      password: params.password,
+      months: params.months,
+      past_months: params.pastMonths,
+    },
+    { onMfaCodeRequest: buildMfaCallback(win) }
+  );
 
   const totalRequests = context.locations.length * context.days.length;
   const progressTotal = Math.max(totalRequests, 1);
@@ -132,10 +183,13 @@ async function runServicesExport(
   params: ScraperParams
 ): Promise<ScraperResult> {
   emitProgress(win, 1, 3, "Iniciando sesion y extrayendo servicios...");
-  const rows = await scrapeServices({
-    email: params.email,
-    password: params.password,
-  });
+  const rows = await scrapeServices(
+    {
+      email: params.email,
+      password: params.password,
+    },
+    { onMfaCodeRequest: buildMfaCallback(win) }
+  );
 
   emitProgress(win, 2, 3, `Servicios encontrados: ${rows.length}`);
   const filePath = path.join(params.savePath, "services.xlsx");
@@ -154,10 +208,13 @@ async function runProfessionalsExport(
   params: ScraperParams
 ): Promise<ScraperResult> {
   emitProgress(win, 1, 4, "Iniciando sesion y extrayendo profesionales...");
-  const result = await scrapeProfessionals({
-    email: params.email,
-    password: params.password,
-  });
+  const result = await scrapeProfessionals(
+    {
+      email: params.email,
+      password: params.password,
+    },
+    { onMfaCodeRequest: buildMfaCallback(win) }
+  );
 
   emitProgress(
     win,
@@ -201,6 +258,35 @@ export function registerIpcHandlers(): void {
     return result.filePaths[0];
   });
 
+  ipcMain.handle("scraper:mfa-submit", (_event, code: string) => {
+    if (!pendingMfa) return;
+    const p = pendingMfa;
+    clearPendingMfa();
+    p.resolve(code);
+  });
+
+  ipcMain.handle("scraper:mfa-resend", async () => {
+    if (!pendingMfa) return;
+    const p = pendingMfa;
+    try {
+      await p.resend(); // fresh sign_in → new emailed code + rotated session
+      if (pendingMfa === p) {
+        armMfaTimer(); // reset the 14-min window; promise stays pending
+        p.win.webContents.send("scraper:mfa-resent");
+      }
+    } catch (err) {
+      if (pendingMfa === p) clearPendingMfa();
+      p.reject(err instanceof Error ? err : new Error(String(err)));
+    }
+  });
+
+  ipcMain.handle("scraper:mfa-cancel", () => {
+    if (!pendingMfa) return;
+    const p = pendingMfa;
+    clearPendingMfa();
+    p.reject(new Error("MFA_CANCELLED"));
+  });
+
   ipcMain.handle(
     "scraper:run",
     async (event, params: ScraperParams): Promise<ScraperResult> => {
@@ -236,6 +322,7 @@ export function registerIpcHandlers(): void {
         }
       } finally {
         console.log = originalLog;
+        clearPendingMfa();
       }
     }
   );

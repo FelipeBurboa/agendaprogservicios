@@ -30,11 +30,23 @@ export interface ProgressData {
   message: string;
 }
 
+export interface MfaRequiredData {
+  attempt: number;
+  error?: string;
+}
+
 export interface ElectronAPI {
   selectSaveFolder: () => Promise<string | null>;
   runScraper: (params: ScraperParams) => Promise<ScraperResult>;
   onProgress: (callback: (data: ProgressData) => void) => void;
   removeProgressListeners: () => void;
+  onMfaRequired: (callback: (data: MfaRequiredData) => void) => void;
+  onMfaResent: (callback: () => void) => void;
+  onMfaTimeout: (callback: () => void) => void;
+  submitMfaCode: (code: string) => Promise<void>;
+  resendMfaCode: () => Promise<void>;
+  cancelMfa: () => Promise<void>;
+  removeMfaListeners: () => void;
 }
 
 declare global {
