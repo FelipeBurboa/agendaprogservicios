@@ -1,16 +1,18 @@
 import { useState } from "react";
 import type {
   ExportType,
+  MfaRequiredData,
   ProgressData,
   ScraperParams,
   ScraperResult,
 } from "./types.ts";
 import ErrorView from "./components/ErrorView.tsx";
 import LoginForm from "./components/LoginForm.tsx";
+import MfaPrompt from "./components/MfaPrompt.tsx";
 import ProgressView from "./components/ProgressView.tsx";
 import ResultsView from "./components/ResultsView.tsx";
 
-type AppView = "form" | "progress" | "results" | "error";
+type AppView = "form" | "progress" | "mfa" | "results" | "error";
 
 function getInitialProgress(exportType: ExportType): ProgressData {
   switch (exportType) {
@@ -45,6 +47,8 @@ export default function App() {
   });
   const [results, setResults] = useState<ScraperResult | null>(null);
   const [error, setError] = useState("");
+  const [mfa, setMfa] = useState<MfaRequiredData>({ attempt: 1 });
+  const [resendNonce, setResendNonce] = useState(0);
   const [formData, setFormData] = useState<Omit<ScraperParams, "savePath">>({
     email: "",
     password: "",
@@ -66,6 +70,13 @@ export default function App() {
     window.electronAPI.removeProgressListeners();
     window.electronAPI.onProgress((nextProgress) => setProgress(nextProgress));
 
+    window.electronAPI.removeMfaListeners();
+    window.electronAPI.onMfaRequired((mfaData) => {
+      setMfa(mfaData);
+      setView("mfa");
+    });
+    window.electronAPI.onMfaResent(() => setResendNonce((n) => n + 1));
+
     try {
       const result = await window.electronAPI.runScraper({
         ...data,
@@ -74,11 +85,25 @@ export default function App() {
       setResults(result);
       setView("results");
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-      setView("error");
+      const message = err instanceof Error ? err.message : String(err);
+      if (message.includes("MFA_CANCELLED")) {
+        setView("form");
+      } else if (message.includes("MFA_TIMEOUT")) {
+        setError("El codigo de verificacion expiro. Vuelve a intentarlo.");
+        setView("error");
+      } else {
+        setError(message);
+        setView("error");
+      }
     } finally {
       window.electronAPI.removeProgressListeners();
+      window.electronAPI.removeMfaListeners();
     }
+  };
+
+  const handleSubmitMfa = (code: string) => {
+    setView("progress");
+    void window.electronAPI.submitMfaCode(code).catch(() => {});
   };
 
   const handleRestart = () => {
@@ -95,6 +120,16 @@ export default function App() {
       )}
       {view === "progress" && (
         <ProgressView progress={progress} exportType={formData.exportType} />
+      )}
+      {view === "mfa" && (
+        <MfaPrompt
+          attempt={mfa.attempt}
+          error={mfa.error}
+          resendNonce={resendNonce}
+          onSubmit={handleSubmitMfa}
+          onResend={() => void window.electronAPI.resendMfaCode().catch(() => {})}
+          onCancel={() => void window.electronAPI.cancelMfa().catch(() => {})}
+        />
       )}
       {view === "results" && results && (
         <ResultsView results={results} onRestart={handleRestart} />

@@ -2,24 +2,31 @@ import type ExcelJS from "exceljs";
 
 // ─── Auth ────────────────────────────────────────────────────────────────────
 
-export interface Cookie {
-  name: string;
-  value: string;
-  domain: string;
-  path: string;
-  expires: number;
-  httpOnly: boolean;
-  secure: boolean;
-  sameSite: string;
-}
-
-export interface AuthState {
-  cookies: Cookie[];
-}
-
 export interface Credentials {
   email: string;
   password: string;
+}
+
+/**
+ * Context passed to an MFA-code callback. `resend` triggers a fresh sign_in so
+ * AgendaPro emails a new code and rotates the session.
+ */
+export interface MfaCodeRequest {
+  attempt: number;
+  previousError?: string;
+  resend: () => Promise<void>;
+}
+
+export type MfaCodeCallback = (request: MfaCodeRequest) => Promise<string>;
+
+/**
+ * Optional auth behavior threaded through the scrape entry points. When MFA is
+ * required and `onMfaCodeRequest` is provided, login becomes interactive;
+ * otherwise login throws MfaRequiredError carrying the session.
+ */
+export interface AuthOptions {
+  onMfaCodeRequest?: MfaCodeCallback;
+  maxMfaAttempts?: number;
 }
 
 // ─── API responses ───────────────────────────────────────────────────────────

@@ -1,4 +1,5 @@
-import { loginAndGetToken, checkTokenExpiry } from "./auth.js";
+import { loginAndGetToken, verifyMfaCode, checkTokenExpiry } from "./auth.js";
+import { getToken, saveToken } from "./token-store.js";
 import {
   RequestAbortedError,
   fetchAdminLocations,
@@ -15,6 +16,7 @@ import type {
   AgendaProLocationAttachment,
   AgendaProProviderAttachment,
   AgendaProServiceProvider,
+  AuthOptions,
   BookingParams,
   Credentials,
   Location,
@@ -224,7 +226,7 @@ export interface BookingsScrapeContext extends BookingsDateRange {
   locations: Location[];
 }
 
-export interface BookingsScrapeOptions {
+export interface BookingsScrapeOptions extends AuthOptions {
   signal?: AbortSignal;
   shouldAbort?: () => boolean;
 }
@@ -255,10 +257,13 @@ export async function prepareBookingsScrape(
   options: BookingsScrapeOptions = {}
 ): Promise<BookingsScrapeContext> {
   throwIfScrapeAborted(options);
-  const token = await authenticateAgendaPro({
-    email: params.email,
-    password: params.password,
-  });
+  const token = await authenticateAgendaPro(
+    {
+      email: params.email,
+      password: params.password,
+    },
+    options
+  );
   throwIfScrapeAborted(options);
 
   const locations = await fetchLocations(token, options.signal);
@@ -271,11 +276,7 @@ export async function prepareBookingsScrape(
   };
 }
 
-export async function authenticateAgendaPro(
-  credentials: Credentials
-): Promise<string> {
-  console.log("Launching browser for login...");
-  const token = await loginAndGetToken(credentials.email, credentials.password);
+function validateToken(token: string): string {
   if (!token || token.split(".").length !== 3) {
     console.error(`  WARNING: Token does not look like a valid JWT (length=${token?.length ?? 0})`);
   }
@@ -283,19 +284,61 @@ export async function authenticateAgendaPro(
   return token;
 }
 
+export async function authenticateAgendaPro(
+  credentials: Credentials,
+  options: AuthOptions = {}
+): Promise<string> {
+  const cached = getToken(credentials.email);
+  if (cached) {
+    console.log("  Using cached session token");
+    return cached;
+  }
+
+  console.log("Signing in to AgendaPro...");
+  const token = await loginAndGetToken(
+    credentials.email,
+    credentials.password,
+    options
+  );
+  saveToken(credentials.email, token);
+  return validateToken(token);
+}
+
+/**
+ * Verify an MFA code directly against a session the caller already holds, then
+ * cache the resulting token. Used by the stateless server's second-phase call —
+ * it must NOT re-run sign_in, which would email a new code and rotate the session.
+ */
+export async function authenticateWithMfaCode(
+  credentials: Credentials,
+  code: string,
+  session: string
+): Promise<string> {
+  const token = await verifyMfaCode(
+    credentials.email,
+    credentials.password,
+    code,
+    session
+  );
+  saveToken(credentials.email, token);
+  return validateToken(token);
+}
+
 export async function scrapeLocations(
   email: string,
-  password: string
+  password: string,
+  options: AuthOptions = {}
 ): Promise<{ token: string; locations: Location[] }> {
-  const token = await authenticateAgendaPro({ email, password });
+  const token = await authenticateAgendaPro({ email, password }, options);
   const locations = await fetchLocations(token);
   return { token, locations };
 }
 
 export async function scrapeServices(
-  credentials: Credentials
+  credentials: Credentials,
+  options: AuthOptions = {}
 ): Promise<ServiceExportRow[]> {
-  const token = await authenticateAgendaPro(credentials);
+  const token = await authenticateAgendaPro(credentials, options);
   const categories = await fetchServiceCategories(token);
   const rowsByServiceId = new Map<number, ServiceExportRow>();
 
@@ -324,9 +367,10 @@ export async function scrapeServices(
 }
 
 export async function scrapeProfessionals(
-  credentials: Credentials
+  credentials: Credentials,
+  options: AuthOptions = {}
 ): Promise<ScrapedProfessionals> {
-  const token = await authenticateAgendaPro(credentials);
+  const token = await authenticateAgendaPro(credentials, options);
   const [locations, providers] = await Promise.all([
     fetchAdminLocations(token),
     fetchServiceProviders(token),
