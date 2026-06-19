@@ -4,6 +4,7 @@ import {
   RequestAbortedError,
   fetchAdminLocations,
   fetchAllBookings,
+  fetchAllProducts,
   fetchLocations,
   fetchServiceCategories,
   fetchServiceProviders,
@@ -20,9 +21,12 @@ import type {
   BookingParams,
   Credentials,
   Location,
+  ProductExportRow,
+  ProductInventoryItem,
   ProfessionalExportRow,
   ProfessionalSheet,
   ScrapedBookings,
+  ScrapedProducts,
   ScrapedProfessionals,
   ServiceExportRow,
   SucursalExportRow,
@@ -167,6 +171,37 @@ function sortByOrderThenName(
   right: Pick<ProfessionalExportRow, "orden" | "nombre">
 ): number {
   return left.orden - right.orden || left.nombre.localeCompare(right.nombre);
+}
+
+/**
+ * Map an AgendaPro inventory product to a VentaPlay "externo" row. Keys MUST
+ * match `PRODUCT_EXPORT_BASE_HEADERS` (+ `Stock {sucursal}`) so `writeSheet`
+ * picks up the values. Empty SKUs fall back to `AP-{id}` — VentaPlay requires
+ * a non-empty unique SKU. Price 0 is preserved (insumo/internal products).
+ */
+function mapProductRow(
+  item: ProductInventoryItem,
+  stockByLocationName: Map<string, number>,
+  locationNames: string[]
+): ProductExportRow {
+  const sku = normalizeText(item.sku) || `AP-${item.id}`;
+  const row: ProductExportRow = {
+    SKU: sku,
+    "Categoría": normalizeText(item.product_category?.name),
+    Marca: normalizeText(item.product_brand?.name),
+    Nombre: normalizeText(item.name),
+    "Descripción": normalizeText(item.description),
+    Unidad: normalizeText(item.product_display?.name),
+    Costo: roundCurrency(item.cost),
+    "Precio venta externa": roundCurrency(item.price),
+    "Precio venta interna": roundCurrency(item.internal_price),
+  };
+
+  for (const name of locationNames) {
+    row[`Stock ${name}`] = stockByLocationName.get(name) ?? 0;
+  }
+
+  return row;
 }
 
 function buildProfessionalSheets(
@@ -418,6 +453,65 @@ export async function scrapeProfessionals(
     sheets,
     hasMultipleSucursales,
   };
+}
+
+export async function scrapeProducts(
+  credentials: Credentials,
+  options: AuthOptions = {}
+): Promise<ScrapedProducts> {
+  const token = await authenticateAgendaPro(credentials, options);
+  const locations = await fetchAdminLocations(token);
+  const usableLocations = locations.filter((location) => normalizeText(location.name) !== "");
+  const locationNames = usableLocations.map((location) => normalizeText(location.name));
+
+  interface ProductAggregate {
+    item: ProductInventoryItem;
+    stockByLocationName: Map<string, number>;
+  }
+  const aggregatesById = new Map<number, ProductAggregate>();
+
+  for (let index = 0; index < usableLocations.length; index++) {
+    const location = usableLocations[index];
+    const locationName = normalizeText(location.name);
+    console.log(
+      `  [${index + 1}/${usableLocations.length}] Fetching inventory: ${locationName}`
+    );
+
+    const products = await fetchAllProducts(token, location.id, { active: true });
+
+    for (const item of products) {
+      let aggregate = aggregatesById.get(item.id);
+      if (!aggregate) {
+        aggregate = { item, stockByLocationName: new Map() };
+        aggregatesById.set(item.id, aggregate);
+      }
+
+      const locationStock = (item.location_products_attributes ?? []).reduce(
+        (sum, attribute) => sum + (Number(attribute.stock) || 0),
+        0
+      );
+      aggregate.stockByLocationName.set(
+        locationName,
+        (aggregate.stockByLocationName.get(locationName) ?? 0) + locationStock
+      );
+    }
+  }
+
+  const rows = [...aggregatesById.values()]
+    .map((aggregate) =>
+      mapProductRow(aggregate.item, aggregate.stockByLocationName, locationNames)
+    )
+    .sort(
+      (left, right) =>
+        String(left["Categoría"]).localeCompare(String(right["Categoría"])) ||
+        String(left["Nombre"]).localeCompare(String(right["Nombre"]))
+    );
+
+  console.log(
+    `  Flattened ${rows.length} unique products across ${usableLocations.length} locations`
+  );
+
+  return { rows, locationNames };
 }
 
 export async function scrapeBookingsWithContext(

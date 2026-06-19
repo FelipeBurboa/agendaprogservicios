@@ -155,6 +155,44 @@ export interface AgendaProServiceProvider {
   service_provider_attachments?: AgendaProProviderAttachment[];
 }
 
+export interface ProductNamedRef {
+  id: number;
+  name: string;
+}
+
+export interface ProductLocationStock {
+  id?: number;
+  product_id?: number;
+  location_id: number;
+  stock: number;
+}
+
+/** Shape of one product in /products/inventory (admin v1). */
+export interface ProductInventoryItem {
+  id: number;
+  name: string;
+  sku: string;
+  description: string;
+  price: number;
+  cost: number;
+  internal_price: number;
+  active: boolean;
+  stock_total: number;
+  stock_limit: number | null;
+  product_category?: ProductNamedRef | null;
+  product_brand?: ProductNamedRef | null;
+  product_display?: ProductNamedRef | null;
+  location_products_attributes?: ProductLocationStock[];
+}
+
+export interface ProductInventoryResponse {
+  products: ProductInventoryItem[];
+  total_products: number;
+  total_pages: number;
+  page: number;
+  per_page: number;
+}
+
 // ─── Scraper params / results ────────────────────────────────────────────────
 
 export interface BookingParams {
@@ -213,6 +251,17 @@ export interface ScrapedProfessionals {
   sucursales: SucursalExportRow[];
   sheets: ProfessionalSheet[];
   hasMultipleSucursales: boolean;
+}
+
+/**
+ * A product row keyed by its VentaPlay-import header strings (incl. dynamic
+ * `Stock {sucursal}` columns), so it drops straight into `writeSheet`.
+ */
+export type ProductExportRow = Record<string, string | number>;
+
+export interface ScrapedProducts {
+  rows: ProductExportRow[];
+  locationNames: string[];
 }
 
 // ─── Excel constants ─────────────────────────────────────────────────────────
@@ -278,6 +327,31 @@ export const SUCURSAL_EXPORT_HEADERS = [
   "lng",
   "foto_url",
 ] as const;
+
+/**
+ * Fixed columns of the products export. Matches VentaPlay's "externo" inventory
+ * format (`parsearExcelExterno`): the format is detected by the presence of
+ * `Marca` + `Categoría`, and accents/casing must match exactly. Per-sucursal
+ * stock is appended as dynamic `Stock {sucursal}` columns by `buildProductHeaders`.
+ */
+export const PRODUCT_EXPORT_BASE_HEADERS = [
+  "SKU",
+  "Categoría",
+  "Marca",
+  "Nombre",
+  "Descripción",
+  "Unidad",
+  "Costo",
+  "Precio venta externa",
+  "Precio venta interna",
+] as const;
+
+export function buildProductHeaders(locationNames: string[]): string[] {
+  return [
+    ...PRODUCT_EXPORT_BASE_HEADERS,
+    ...locationNames.map((name) => `Stock ${name}`),
+  ];
+}
 
 export const HEADER_FONT: Partial<ExcelJS.Font> = {
   bold: true,
