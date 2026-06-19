@@ -28,6 +28,12 @@ function getInitialProgress(exportType: ExportType): ProgressData {
         total: 1,
         message: "Preparando exportacion de profesionales...",
       };
+    case "products":
+      return {
+        current: 0,
+        total: 1,
+        message: "Preparando exportacion de inventario...",
+      };
     case "bookings":
     default:
       return {
