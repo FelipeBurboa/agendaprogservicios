@@ -29,11 +29,18 @@ const EXPORT_COPY: Record<
     buttonLabel: "Seleccionar carpeta y exportar servicios",
     helperText: "Genera services.xlsx con las categorias mapeadas como tag.",
   },
+  products: {
+    label: "Inventario (productos)",
+    description: "Exporta el inventario de productos con stock por sucursal.",
+    buttonLabel: "Seleccionar carpeta y exportar inventario",
+    helperText:
+      "Genera productos.xlsx en el formato de importacion de VentaPlay (categoria, marca, precios y una columna de stock por sucursal).",
+  },
   professionals: {
     label: "Profesionales y sucursales",
-    description: "Exporta profesionales y, si aplica, un archivo adicional de sucursales.",
+    description: "Exporta profesionales y un archivo adicional de sucursales.",
     buttonLabel: "Seleccionar carpeta y exportar profesionales",
-    helperText: "Genera professionals.xlsx y agrega sucursales.xlsx solo cuando hay mas de una sucursal activa en los datos.",
+    helperText: "Genera professionals.xlsx y sucursales.xlsx en la carpeta seleccionada.",
   },
 };
 
@@ -109,6 +116,14 @@ export default function LoginForm({ initialData, onSubmit }: Props) {
             onChange={() => setExportType("services")}
             label={EXPORT_COPY.services.label}
             description={EXPORT_COPY.services.description}
+          />
+          <RadioOption
+            name="exportType"
+            value="products"
+            checked={exportType === "products"}
+            onChange={() => setExportType("products")}
+            label={EXPORT_COPY.products.label}
+            description={EXPORT_COPY.products.description}
           />
           <RadioOption
             name="exportType"

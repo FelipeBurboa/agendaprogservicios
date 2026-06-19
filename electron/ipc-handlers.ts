@@ -3,6 +3,7 @@ import * as path from "path";
 import {
   prepareBookingsScrape,
   scrapeBookingsWithContext,
+  scrapeProducts,
   scrapeProfessionals,
   scrapeServices,
 } from "../src/scraper.js";
@@ -12,6 +13,7 @@ import {
 } from "../src/bookings-runtime.js";
 import { fmtDate } from "../src/dates.js";
 import {
+  generateProductsWorkbookFile,
   generateProfessionalsWorkbookFile,
   generateServicesWorkbookFile,
   generateSucursalesWorkbookFile,
@@ -229,14 +231,10 @@ async function runProfessionalsExport(
   await generateProfessionalsWorkbookFile(result.sheets, professionalsFilePath);
   files.push(professionalsFilePath);
 
-  if (result.hasMultipleSucursales) {
-    const sucursalesFilePath = path.join(params.savePath, "sucursales.xlsx");
-    emitProgress(win, 4, 4, "Generando sucursales.xlsx...");
-    await generateSucursalesWorkbookFile(result.sucursales, sucursalesFilePath);
-    files.push(sucursalesFilePath);
-  } else {
-    emitProgress(win, 4, 4, "Exportacion finalizada");
-  }
+  const sucursalesFilePath = path.join(params.savePath, "sucursales.xlsx");
+  emitProgress(win, 4, 4, "Generando sucursales.xlsx...");
+  await generateSucursalesWorkbookFile(result.sucursales, sucursalesFilePath);
+  files.push(sucursalesFilePath);
 
   return {
     exportType: "professionals",
@@ -245,6 +243,34 @@ async function runProfessionalsExport(
       metric("Sucursales", result.sucursales.length, "green"),
     ],
     files,
+  };
+}
+
+async function runProductsExport(
+  win: BrowserWindow,
+  params: ScraperParams
+): Promise<ScraperResult> {
+  emitProgress(win, 1, 3, "Iniciando sesion y extrayendo inventario...");
+  const { rows, locationNames } = await scrapeProducts(
+    {
+      email: params.email,
+      password: params.password,
+    },
+    { onMfaCodeRequest: buildMfaCallback(win) }
+  );
+
+  emitProgress(win, 2, 3, `Productos encontrados: ${rows.length}`);
+  const filePath = path.join(params.savePath, "productos.xlsx");
+  await generateProductsWorkbookFile(rows, locationNames, filePath);
+  emitProgress(win, 3, 3, "productos.xlsx generado");
+
+  return {
+    exportType: "products",
+    metrics: [
+      metric("Productos", rows.length, "purple"),
+      metric("Sucursales", locationNames.length, "green"),
+    ],
+    files: [filePath],
   };
 }
 
@@ -314,6 +340,8 @@ export function registerIpcHandlers(): void {
         switch (params.exportType) {
           case "services":
             return await runServicesExport(win, params);
+          case "products":
+            return await runProductsExport(win, params);
           case "professionals":
             return await runProfessionalsExport(win, params);
           case "bookings":

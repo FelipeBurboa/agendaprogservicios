@@ -3,12 +3,14 @@ import {
   authenticateWithMfaCode,
   prepareBookingsScrape,
   scrapeLocations,
+  scrapeProducts,
   scrapeProfessionals,
   scrapeServices,
   scrapeBookingsWithContext,
 } from "./src/scraper.js";
 import { MfaRequiredError, MfaCodeError } from "./src/auth.js";
 import {
+  generateProductsWorkbookFile,
   generateProfessionalsWorkbookFile,
   generateServicesWorkbookFile,
   generateSucursalesWorkbookFile,
@@ -399,6 +401,35 @@ app.post("/api/services", async (req: Request, res: Response) => {
   }
 });
 
+app.post("/api/products", async (req: Request, res: Response) => {
+  const creds = validateCredentials(req.body);
+  if (typeof creds === "string") {
+    res.status(400).json({ error: creds });
+    return;
+  }
+
+  try {
+    await preauthIfMfaProvided(creds, req.body);
+    const { rows, locationNames } = await scrapeProducts(creds);
+    const format = (req.query.format as string)?.toLowerCase();
+
+    if (format === "xlsx") {
+      await generateProductsWorkbookFile(rows, locationNames, "productos.xlsx");
+      res.json({
+        files: ["productos.xlsx"],
+        products: rows.length,
+      });
+      return;
+    }
+
+    res.json(rows);
+  } catch (err) {
+    if (handleAuthError(res, err)) return;
+    console.error("Error in /api/products:", err);
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
 app.post("/api/professionals", async (req: Request, res: Response) => {
   const creds = validateCredentials(req.body);
   if (typeof creds === "string") {
@@ -412,13 +443,9 @@ app.post("/api/professionals", async (req: Request, res: Response) => {
     const format = (req.query.format as string)?.toLowerCase();
 
     if (format === "xlsx") {
-      const files = ["professionals.xlsx"];
+      const files = ["professionals.xlsx", "sucursales.xlsx"];
       await generateProfessionalsWorkbookFile(result.sheets, "professionals.xlsx");
-
-      if (result.hasMultipleSucursales) {
-        await generateSucursalesWorkbookFile(result.sucursales, "sucursales.xlsx");
-        files.push("sucursales.xlsx");
-      }
+      await generateSucursalesWorkbookFile(result.sucursales, "sucursales.xlsx");
 
       res.json({
         files,
@@ -457,6 +484,7 @@ app.listen(PORT, () => {
   console.log("Endpoints:");
   console.log("  POST /api/locations");
   console.log("  POST /api/services           (?format=json|xlsx)");
+  console.log("  POST /api/products           (?format=json|xlsx)");
   console.log("  POST /api/professionals      (?format=json|xlsx)");
   console.log("  POST /api/bookings           (?format=json|xlsx)  - both reserved + blocked");
   console.log("  POST /api/bookings/reserved  (?format=json|xlsx)");

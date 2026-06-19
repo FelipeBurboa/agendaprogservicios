@@ -5,6 +5,8 @@ import type {
   BookingsResponse,
   Location,
   LocationsResponse,
+  ProductInventoryItem,
+  ProductInventoryResponse,
 } from "./types.js";
 
 const API_BASE = "https://ap-api.agendapro.com/agenda-core-bff";
@@ -191,4 +193,46 @@ export async function fetchServiceProviders(
   );
   console.log(`  Found ${providers.length} professionals`);
   return providers;
+}
+
+/**
+ * Fetch every inventory product for a single location, following pagination.
+ * The /products/inventory endpoint is location-scoped: each item's
+ * `location_products_attributes` carries only the queried location's stock.
+ */
+export async function fetchAllProducts(
+  token: string,
+  locationId: number,
+  options: { active?: boolean } = {},
+  signal?: AbortSignal
+): Promise<ProductInventoryItem[]> {
+  const activeFlag = options.active === false ? "" : "1";
+  const basePath =
+    `v1/products/inventory?name=&location_id=${locationId}` +
+    `&brand_ids=&category_ids=&display_ids=&per_page=100&active=${activeFlag}`;
+
+  const first = await apiGet<ProductInventoryResponse>(
+    token,
+    `${basePath}&page=1`,
+    3,
+    signal,
+    API_BASE_LEGACY
+  );
+
+  const products = [...(first.products ?? [])];
+  const totalPages = first.total_pages ?? 1;
+
+  for (let page = 2; page <= totalPages; page++) {
+    await sleep(300, signal);
+    const pageData = await apiGet<ProductInventoryResponse>(
+      token,
+      `${basePath}&page=${page}`,
+      3,
+      signal,
+      API_BASE_LEGACY
+    );
+    products.push(...(pageData.products ?? []));
+  }
+
+  return products;
 }

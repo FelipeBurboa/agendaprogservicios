@@ -10,7 +10,9 @@ import {
   SERVICE_EXPORT_HEADERS,
   SUCURSAL_EXPORT_HEADERS,
   THIN_BORDER,
+  buildProductHeaders,
   type Location,
+  type ProductExportRow,
   type ProfessionalSheet,
   type ServiceExportRow,
   type SucursalExportRow,
@@ -115,6 +117,17 @@ function buildSucursalesWorkbook(rows: SucursalExportRow[]): ExcelJS.Workbook {
   return buildSingleSheetWorkbook("sucursales", SUCURSAL_EXPORT_HEADERS, rows);
 }
 
+function buildProductsWorkbook(
+  rows: ProductExportRow[],
+  locationNames: string[]
+): ExcelJS.Workbook {
+  return buildSingleSheetWorkbook("productos", buildProductHeaders(locationNames), rows, {
+    Costo: "0.00",
+    "Precio venta externa": "0.00",
+    "Precio venta interna": "0.00",
+  });
+}
+
 async function workbookToBuffer(wb: ExcelJS.Workbook): Promise<Buffer> {
   const content = await wb.xlsx.writeBuffer();
   return Buffer.isBuffer(content) ? content : Buffer.from(content);
@@ -159,4 +172,21 @@ export async function generateSucursalesWorkbookFile(
 ): Promise<void> {
   const wb = buildSucursalesWorkbook(rows);
   await wb.xlsx.writeFile(filePath);
+}
+
+export async function generateProductsWorkbookFile(
+  rows: ProductExportRow[],
+  locationNames: string[],
+  filePath: string
+): Promise<void> {
+  const wb = buildProductsWorkbook(rows, locationNames);
+  await wb.xlsx.writeFile(filePath);
+}
+
+export async function generateProductsWorkbookBuffer(
+  rows: ProductExportRow[],
+  locationNames: string[]
+): Promise<Buffer> {
+  const wb = buildProductsWorkbook(rows, locationNames);
+  return workbookToBuffer(wb);
 }

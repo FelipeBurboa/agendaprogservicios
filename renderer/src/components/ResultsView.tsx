@@ -9,6 +9,8 @@ function getTitle(exportType: ScraperResult["exportType"]): string {
   switch (exportType) {
     case "services":
       return "Servicios exportados";
+    case "products":
+      return "Inventario exportado";
     case "professionals":
       return "Profesionales exportados";
     case "bookings":
@@ -21,6 +23,8 @@ function getDescription(results: ScraperResult): string {
   switch (results.exportType) {
     case "services":
       return "El catalogo de servicios ya quedo listo en la carpeta seleccionada.";
+    case "products":
+      return "El inventario de productos ya quedo listo en la carpeta seleccionada.";
     case "professionals":
       return results.files.some((file) => file.endsWith("sucursales.xlsx"))
         ? "Los archivos de profesionales y sucursales ya quedaron listos en la carpeta seleccionada."
