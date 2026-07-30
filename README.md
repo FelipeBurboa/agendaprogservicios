@@ -19,17 +19,18 @@ cd renderer && npm install
 src/
   types.ts          — Interfaces y constantes
   dates.ts          — Helpers de fechas (addMonths, fmtDate, dailyChunks)
-  auth.ts           — Login con Playwright y validacion de token JWT
+  auth.ts           — Login HTTP (sign_in + MFA) y validacion de token JWT
+  token-store.ts    — Cache de token JWT en memoria + disco
   api.ts            — Llamadas a la API de AgendaPro
   scraper.ts        — Orquestacion del scraping completo
   excel.ts          — Generacion de archivos Excel
 electron/
   main.ts           — Proceso principal de Electron
   preload.ts        — Bridge seguro entre renderer y main (contextBridge)
-  ipc-handlers.ts   — Handlers IPC para scraper y dialogo de carpeta
+  ipc-handlers.ts   — Handlers IPC para scraper, MFA y dialogo de carpeta
 renderer/
   src/main.tsx      — Punto de entrada React
-  src/components/   — ProgressView, ResultsView, ErrorView
+  src/components/   — ProgressView, ResultsView, ErrorView, MfaPrompt
 scripts/
   copy-browsers.js  — Copia Chromium de Playwright al bundle
   wait-and-launch.js — Helper para modo desarrollo
@@ -37,6 +38,16 @@ main.ts             — Punto de entrada CLI
 server.ts           — Punto de entrada API REST (Express)
 requests.http       — Ejemplos para VS Code REST Client
 ```
+
+## Autenticacion de dos factores (MFA)
+
+AgendaPro envia un codigo de 6 digitos por email en cada inicio de sesion nuevo (valido ~14 minutos). El flujo es interactivo en cada interfaz:
+
+- **Escritorio (Electron):** aparece una pantalla para ingresar el codigo, con botones **Verificar**, **Reenviar codigo** y **Cancelar**, y una cuenta regresiva.
+- **CLI:** se solicita el codigo por consola (escribe `r` para reenviar).
+- **API REST (sin estado):** el primer POST responde **401** `{ "mfa_required": true, "mfa_session": "..." }` y dispara el envio del codigo. Reenvia el mismo POST agregando `mfa_code` y `mfa_session` para obtener **200**. Ver `requests.http`.
+
+El token JWT obtenido se guarda en `~/.agendapro-scraper/tokens.json` y se reutiliza hasta que expira, de modo que normalmente solo se pide **un codigo** aunque ejecutes varias exportaciones (incluso tras reiniciar la app o el servidor). Cuentas sin MFA inician sesion directamente, sin pasos adicionales.
 
 ## Aplicacion de escritorio (Electron)
 

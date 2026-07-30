@@ -59,6 +59,10 @@
 
 **Constraints:** UNIQUE(`stock_por_ubicacion_producto_id_variante_id_ubicacion_nombr_key`) on organizacion_id | UNIQUE(`stock_por_ubicacion_producto_id_variante_id_ubicacion_nombr_key`) on ubicacion_nombre | UNIQUE(`stock_por_ubicacion_producto_id_variante_id_ubicacion_nombr_key`) on producto_id | UNIQUE(`stock_por_ubicacion_producto_id_variante_id_ubicacion_nombr_key`) on variante_id |
 
+**Notes:**
+- **`cantidad` puede ser NEGATIVA** — el CHECK `cantidad_ubicacion_positiva` se DROPeó definitivamente en `20260730120002_allow_negative_stock_por_ubicacion.sql` para permitir oversell forzado, consistente con el stock GLOBAL (`productos_stock.cantidad_disponible`, sin CHECK desde `20251226215125`). El path por defecto sigue rechazando sobreventa; solo un "Agregar de todas formas" confirmado fuerza el negativo. Historial: CHECK creado en `20251118000000`, dropeado en `20260301010000`, re-agregado en `20260302183834`, dropeado aquí.
+- **RPCs atómicas que escriben esta tabla** (migs `20260730120000`/`20260730120001`, móvil): `agregar_producto_consumo_con_stock(...)` descuenta (modo per-sucursal: fila más reciente por `(producto, sucursal)`, `FOR UPDATE`; luego recomputa `productos_stock.cantidad_disponible = Σ filas`) y `restaurar_stock_consumo(p_consumo_id, p_usuario_id)` devuelve a la MISMA sucursal de la salida original. Ambas registran `movimientos_stock` y respetan `p_forzar_stock_negativo`. Ver el bloque de RPCs móviles en `SKILL.md` (sync 2026-06-29) + [sales-products.md](sales-products.md).
+
 ### proveedores_stock
 
 | Column | Type | Null | Default |

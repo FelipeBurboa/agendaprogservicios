@@ -3,6 +3,7 @@ import * as path from "path";
 import {
   prepareBookingsScrape,
   scrapeBookingsWithContext,
+  scrapeComisiones,
   scrapeProducts,
   scrapeProfessionals,
   scrapeServices,
@@ -13,6 +14,7 @@ import {
 } from "../src/bookings-runtime.js";
 import { fmtDate } from "../src/dates.js";
 import {
+  generateComisionesWorkbookFile,
   generateProductsWorkbookFile,
   generateProfessionalsWorkbookFile,
   generateServicesWorkbookFile,
@@ -274,6 +276,39 @@ async function runProductsExport(
   };
 }
 
+async function runComisionesExport(
+  win: BrowserWindow,
+  params: ScraperParams
+): Promise<ScraperResult> {
+  emitProgress(win, 1, 3, "Iniciando sesion y extrayendo comisiones...");
+  const data = await scrapeComisiones(
+    {
+      email: params.email,
+      password: params.password,
+    },
+    { onMfaCodeRequest: buildMfaCallback(win) }
+  );
+
+  emitProgress(
+    win,
+    2,
+    3,
+    `Comisiones: ${data.servicios.length} de servicios | ${data.productos.length} de productos`
+  );
+  const filePath = path.join(params.savePath, "comisiones.xlsx");
+  await generateComisionesWorkbookFile(data, filePath);
+  emitProgress(win, 3, 3, "comisiones.xlsx generado");
+
+  return {
+    exportType: "comisiones",
+    metrics: [
+      metric("Comisiones servicios", data.servicios.length, "purple"),
+      metric("Comisiones productos", data.productos.length, "green"),
+    ],
+    files: [filePath],
+  };
+}
+
 export function registerIpcHandlers(): void {
   ipcMain.handle("scraper:select-folder", async () => {
     const result = await dialog.showOpenDialog({
@@ -344,6 +379,8 @@ export function registerIpcHandlers(): void {
             return await runProductsExport(win, params);
           case "professionals":
             return await runProfessionalsExport(win, params);
+          case "comisiones":
+            return await runComisionesExport(win, params);
           case "bookings":
           default:
             return await runBookingsExport(win, params);

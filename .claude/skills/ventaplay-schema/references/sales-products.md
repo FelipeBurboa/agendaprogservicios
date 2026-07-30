@@ -1,6 +1,6 @@
 # Sales & Products
 
-> 8 tables in this domain
+> 9 tables in this domain
 
 ### productos
 
@@ -57,6 +57,8 @@
 | dimension_ancho | numeric | ✓ | - |
 
 **FK →** proveedor_id → `proveedores_stock.id` | subcategoria_id → `categorias_productos.id` | organizacion_id → `organizaciones.id` | categoria_id → `categorias_productos.id` |
+
+**Constraints:** CHECK `precio_venta_gt_costo` (mig `20260718120000_add_precio_venta_gt_costo_constraint.sql`) — pese al nombre histórico, ahora solo valida `precio_venta >= 0 AND precio_costo >= 0`. NO exige venta > costo: se permiten precios bajo costo / 0 a propósito (insumos, liquidación, loss leaders). |
 
 ### variantes_producto
 
@@ -142,9 +144,12 @@
 | ajuste_valor | numeric | ✗ | 0 |
 | precio_base_unitario | numeric | ✗ | - |
 | cantidad | int4 | ✗ | - |
-| producto_id | uuid | ✗ | - |
+| producto_id | uuid | ✓ | - |
+| plato_id | uuid | ✓ | - |
 
-**FK →** venta_externa_id → `ventas_externas.id` | producto_id → `productos_stock.id` |
+**FK →** venta_externa_id → `ventas_externas.id` | producto_id → `productos_stock.id` (RESTRICT) | plato_id → `platos.id` (RESTRICT) |
+
+**Constraints:** CHECK `ventas_externas_items_producto_xor_plato` (mig `20260713120000_autopago_platos.sql`) — exactamente uno de `producto_id` / `plato_id` no nulo (línea de producto de stock **o** de plato, nunca ambos/ninguno). `producto_id` pasó de NOT NULL a nullable para permitir líneas de plato cuando el autopago (kiosko) vende platos. |
 
 ### venta_productos_interna
 
@@ -209,7 +214,7 @@
 
 ### consumo_ayudantes
 
-Ayudantes (0..N profesionales) de un consumo de servicio, adicionales al dueño (`consumos.profesional_id`). Creada en migración `20260710120000_consumo_ayudantes.sql`. Cada ayudante recibe **comisión propia** (su `comisiones_json` sobre la misma base del consumo) en Reporte Profesional, Comisiones y Cierre Diario — la atribución se computa en la capa de reportes (no se persiste comisión).
+Ayudantes (0..N profesionales) de un consumo de servicio, adicionales al dueño (`consumos.profesional_id`). Creada en migración `20260721120001_consumo_ayudantes.sql`. Cada ayudante recibe **comisión propia** (su `comisiones_json` sobre la misma base del consumo) en Reporte Profesional, Comisiones y Cierre Diario — la atribución se computa en la capa de reportes (no se persiste comisión).
 
 | Column | Type | Null | Default |
 |--------|------|------|---------|

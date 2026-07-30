@@ -28,6 +28,7 @@
 | categoria_id | uuid | ✓ | - |
 | ventana_minutos | int4 | ✗ | 0 |
 | usar_precio_por_sucursal | bool | ✗ | false |
+| crear_google_meet | bool | ✗ | false |
 
 **FK →** organizacion_id → `organizaciones.id` | categoria_id → `servicio_categorias.id` (ON DELETE SET NULL) |
 
@@ -40,6 +41,7 @@
 - `categoria_id` (migration `20260518120000_add_servicio_categorias.sql`) — single FK to `servicio_categorias.id`. NULL ⇒ "Sin categoría" bucket on the public landing accordion. `ON DELETE SET NULL`: deleting a categoría preserves the servicios but clears their FK. **Public-landing only consumer** in v1, gated by `organizaciones.landing_config.sections.services.config.useCategorias`. The CRM admin views (`/servicios` table cell quick-select, servicio detail form picker) write through this column directly via `useServicios.updateServicio`. Partial index `idx_servicios_categoria_id` on `(categoria_id) WHERE categoria_id IS NOT NULL`.
 - Per-servicio cupo (concurrent-booking cap) lives on the `profesional_servicio` join table as `profesional_servicio.cupos`, NOT here. Migration `20260423154735_servicios_cupos.sql` briefly added `servicios.cupos` as a global cap; migration `20260424002919_cupos_per_asignacion.sql` moved it to the join table for per-profesional granularity and dropped the servicios column. See the `profesional_servicio` / `servicio_profesional` entry in this file for details.
 - `ventana_minutos` (migrations `20260604120000_add_ventana_minutos_to_servicios.sql` + `20260605120000_proxima_hora_batch_ventana.sql`) — post-cita buffer in minutes. When a cita that includes this servicio ends at T, the profesional cannot accept ANY cita during `[T, T + ventana_minutos)`. Applies to Layer 1 only (profesional bloque) — Layer 2 (per-servicio cupo) is untouched. `cita.hora_fin` is NEVER modified; the ventana is phantom occupation visible only to `obtener_slots_con_incremento_v2`, `validar_capacidad_cita`, and `obtener_proxima_hora_por_servicio_batch`. Calendar render, atencion duration, billing, and outbound confirmations all read the real `hora_fin`. **Pack exception**: inside the same `pack_grupo_id` (same day), ventana on a non-last item is suppressed — a sibling EXISTS guard checks for `c_sib.hora_inicio >= c.hora_fin`; only the LAST pack item's ventana fires. **Pack-level ventana = silent no-op**: `cita.servicios[].id` stores SUB-servicio UUIDs, never the parent pack's, so the lookup never matches. The frontend (`ServicioInformacionInlineEdit`) hides the input when `tipo='pack'` and forces 0 on save. Midnight wrap clamped via `least(..., time '23:59:59')`. Default 0 → existing behavior byte-equivalent.
+- `crear_google_meet` (migration `20260813120000_add_crear_google_meet_to_servicios.sql`) — per-servicio opt-in for Google Meet room creation. A cita generates a Meet room only when `organizaciones.crear_google_meet_citas = true` (master gate) **AND** the cita includes ≥1 servicio with this flag ON. Evaluated in `google-calendar-sync/lib/citaLoader.ts` — `loadCitaContext` collects `cita.servicios[].id` and does `servicios.select('id').in('id', ids).eq('crear_google_meet', true).limit(1)` to set `ctx.crear_meet`; `eventBuilder` adds `conferenceData` only on create. **Packs excluded**: `cita.servicios[].id` stores SUB-servicio UUIDs, never the parent pack's, so a pack-level flag would be a no-op — the `GoogleCalendarConfigDialog` checklist filters `tipo != 'pack'`. Default false + no backfill → after deploy no cita creates Meet until an admin marks servicios (replaces the prior org-wide "every cita gets Meet" behavior). Admins manage the switch + checklist together in `GoogleCalendarConfigDialog` (Profesionales section header). No RLS/grants change (existing table, grants-only posture).
 - `usar_precio_por_sucursal` (migration `20260707120001_add_precio_por_sucursal_servicios.sql`) — opt-in flag for per-sucursal pricing. `false` (default) → effective price is always `servicios.precio` (global, byte-equivalent to legacy). `true` → effective price resolved from `servicio_precios_sucursal` for the given sucursal, with **fallback to `servicios.precio`** when no row exists or `sucursal_id IS NULL`. **V1 scope: `tipo='individual'` only** — packs ignore the flag (UI forces false; `cita.servicios[].id` stores sub-servicio UUIDs, never the pack's). The ONLY source of truth for "what does this servicio cost at this sucursal" are the resolver RPCs `resolver_precio_servicio` / `resolver_precios_servicios` (below) — frontend display, cobro, edge functions, and MCP tools must all resolve through them so displayed price == charged price.
 
 ### servicio_precios_sucursal
@@ -190,8 +192,18 @@ N:M join between `profesionales` and `servicios`. One row per assignment.
 | organizacion_id | uuid | ✗ | - |
 | nombre_unaccented | text | ✓ | - |
 | activo | bool | ✗ | true |
+| ocultar_contacto_cliente | bool | ✗ | false |
+| honorarios_rut | text | ✓ | - |
+| honorarios_activo | bool | ✗ | false |
+| honorarios_meta | jsonb | ✗ | `{}`::jsonb |
 
 **FK →** organizacion_id → `organizaciones.id` | sucursal_id → `sucursales.id` |
+
+`ocultar_contacto_cliente` (mig `20260710120000_ocultar_contacto_cliente_profesionales.sql`) — override individual: si true, cualquier usuario `professional` vinculado a este profesional (vía `usuario_profesionales`) NO ve el botón "Cliente" en el detalle de cita, aun si el flag de su org está en false. Se combina por OR con `organizaciones.ocultar_contacto_cliente_profesionales` (evita leakage de contacto para que el profesional no contacte al cliente fuera de la plataforma).
+
+`honorarios_rut` / `honorarios_activo` / `honorarios_meta` (mig `20260714100000_honorarios_boletas.sql`) — Boletas de Honorarios (DTE 80). `honorarios_rut` = RUT del profesional emisor de su BHE (`document_issuer` del DTE 80); `honorarios_activo` (default false) habilita que su comisión de SERVICIO se emita como honorario; `honorarios_meta jsonb` cachea `master_entity_id` (Tupana) + estado autorizado en SII + `ultima_verificacion` (NO es fuente de verdad). Gateado además por `organizaciones.usa_honorarios`. La BHE emitida vive en `atenciones_boletas_honorarios` (ver [payments-billing.md](payments-billing.md)).
+
+`configuracion_json` se inicializa en el INSERT vía `generar_configuracion_basica(prof_id)`. Desde mig `20260818120002_default_horas_previas_30min.sql`, el default de `configuracion_agenda.horas_previas_reserva` para profesionales NUEVOS es **0.5** (30 min) — antes 3 horas, desalineado con el default del frontend. Filas existentes no se tocan.
 
 ### usuario_profesionales
 
@@ -301,8 +313,21 @@ N:M join between `profesionales` and `servicios`. One row per assignment.
 | created_at | timestamptz | ✗ | now() |
 | profesional_id | uuid | ✗ | - |
 | organizacion_id | uuid | ✗ | - |
+| serie_id | uuid | ✓ | - |
+| orden | int4 | ✓ | - |
+| modificada_individualmente | bool | ✗ | false |
 
 **FK →** created_by → `usuarios.id` | profesional_id → `profesionales.id` | organizacion_id → `organizaciones.id` |
+
+**Indexes:** parcial `idx_profesional_excepciones_serie_id` on `(serie_id) WHERE serie_id IS NOT NULL` |
+
+**Excepciones en serie (migs `20261102150000`, `20261102160000`, `20261102170000`, `20261102180000`):** una excepción recurrente ("todos los martes de 15:00 a 17:00, 8 veces") se materializa como **N filas independientes** que comparten `serie_id` y se numeran con `orden`. No hay tabla de serie — el `serie_id` es solo el hilo. `modificada_individualmente = true` marca una ocurrencia editada a mano: la edición masiva de la serie **la salta** (así no se pisan los ajustes puntuales).
+
+- **`crear_excepciones_serie(p_profesional_id uuid, p_organizacion_id uuid, p_created_by uuid, p_cupos_disponibles integer, p_notas text, p_servicio_ids uuid[], p_ocurrencias jsonb) → TABLE(id, fecha_inicio, fecha_fin, orden, serie_id)`** — inserta las N excepciones + sus `excepcion_servicios`. Raise si `p_ocurrencias` viene vacío o supera **260** ocurrencias. Con una sola ocurrencia deja `serie_id` y `orden` en NULL (no es serie).
+- **`actualizar_excepciones_serie(p_serie_id uuid, p_orden_desde integer, p_hora_inicio time, p_hora_fin time, p_cupos_disponibles integer, p_notas text, p_servicio_ids uuid[]) → TABLE(actualizadas integer, omitidas integer)`** — edición "de aquí en adelante": afecta `serie_id = p_serie_id AND modificada_individualmente = false AND (p_orden_desde IS NULL OR orden >= p_orden_desde)`, **conservando el día de cada fila** (`date_trunc('day', fecha_inicio) + p_hora_inicio`) y reemplazando sus `excepcion_servicios`. `omitidas` = las que se saltó por estar modificadas a mano.
+- **`get_excepciones_con_servicios(p_profesional_id uuid) → TABLE(id, fecha_inicio, fecha_fin, cupos_disponibles, notas, servicio_ids uuid[], servicio_nombres text[], created_at, serie_id, orden, modificada_individualmente)`** — **11 columnas**; sufrió dos `DROP+CREATE` (`20261102150000 agregó `serie_id`/`orden`, `20261102170000` agregó `modificada_individualmente`). Cada uno cambió el shape del RETURNS TABLE → los grants se re-emiten en la propia migración.
+
+Todas SECURITY DEFINER, OWNER postgres, `GRANT ALL` a `anon, authenticated, service_role`.
 
 ### profesional_servicio
 
@@ -366,4 +391,17 @@ N:M join between `profesionales` and `servicios`. One row per assignment.
 **FK →** producto_id → `productos.id` | servicio_id → `servicios.id` |
 
 **Constraints:** UNIQUE(`producto_servicio_producto_id_servicio_id_key`) on producto_id, servicio_id |
+
+## Resolución difusa de servicios (agente / MCP)
+
+### `resolver_servicio_fuzzy(p_organizacion_id uuid, p_phrase text, p_limit int DEFAULT 5, p_min_score real DEFAULT 0.30) → TABLE(id uuid, nombre text, precio numeric, duracion_minutos int, tipo text, score real, exact_match boolean)`
+
+`LANGUAGE sql STABLE`, **SECURITY INVOKER**, `search_path = public, extensions`. GRANT a `anon, authenticated, service_role`. Matchea una frase del cliente ("quiero corte de pelo y barba") contra `servicios.nombre_unaccented` para que el agente no alucine UUIDs.
+
+Evolución (5 migraciones, la firma cambió dos veces → `DROP+CREATE`):
+1. `20260509120000` — versión inicial con `similarity()` de pg_trgm, `p_min_score` 0.20, 6 columnas.
+2. `20260510120000` — pasa a **`word_similarity()`** y sube el default a **0.30** (misma firma → `CREATE OR REPLACE`).
+3. `20260511120000` — solo cambia el `ORDER BY` (desempate).
+4. `20260928120000` — **DROP+CREATE**: agrega la columna **`exact_match boolean`**. Tokeniza la frase, descarta las stopwords `de, del, la, el, los, las, un, una, para, con, por, y, o, u, en, a, al, mas`, y si el conjunto de tokens de contenido coincide exactamente con el del servicio → `score = 1.0`, `exact_match = true`.
+5. `20260928130000` — **DROP+CREATE** (mismo shape): `ORDER BY m.exact_match DESC` pasa a ser la primera clave, para que un match exacto nunca quede debajo de uno difuso con score alto.
 

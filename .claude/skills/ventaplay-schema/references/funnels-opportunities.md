@@ -56,6 +56,8 @@
 
 **FK →** empresa_id → `empresas.id` | estado_id → `estados_funnel.id` | funnel_id → `funnels.id` | organizacion_id → `organizaciones.id` | responsable_id → `usuarios.id` | responsable_id → `usuarios.id` | cliente_id → `clientes.id` |
 
+**Trigger `tr_oportunidad_cambio_estado_db`** (mig `20260711120000_oportunidad_cambio_estado_db_trigger.sql`) — AFTER INSERT OR UPDATE OF `estado_id` → función SECURITY DEFINER `trigger_oportunidad_cambio_estado_to_edge()`: ante un cambio real de `estado_id` (INSERT con estado no nulo, o UPDATE que lo cambia — detectado con `IS DISTINCT FROM`), notifica a la edge `trigger-automatizaciones` vía `pg_net.http_post` (fire-and-forget; body `{tipo_evento:'oportunidad_cambio_estado', _depth:1, source:'db_trigger', estado_anterior_id, estado_nuevo_id}`). Hace el gatillado de la automatización **agnóstico de la fuente** (API REST directa, Zapier, SQL, scripts externos) — antes solo lo disparaban los 9 callers explícitos del CRM. Coexiste con ellos sin doble envío: el UNIQUE `idx_auto_ejec_dedup` (minute-bucket `<opp>:<estado>:<minuto>`) en `automatizaciones_ejecuciones` bloquea la 2ª invocación del mismo minuto. URL en `app_global_config.supabase_functions_url`; EXCEPTION handler (RAISE WARNING) evita romper la transacción si pg_net falla. Setup prod: insertar `supabase_functions_url` en `app_global_config`.
+
 ### historial_oportunidades
 
 | Column | Type | Null | Default |

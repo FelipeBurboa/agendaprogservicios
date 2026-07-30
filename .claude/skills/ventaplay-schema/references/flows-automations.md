@@ -36,6 +36,8 @@
 
 **FK →** flujo_configuracion_id → `flujos_configuracion.id` | contacto_id → `contactos.id` |
 
+**Indexes:** UNIQUE parcial `flujos_ejecuciones_active_per_contacto_unique` on `(contacto_id) WHERE estado IN ('iniciado','en_progreso','esperando_respuesta')` (mig `20260517120000`) — **un contacto no puede tener dos flujos vivos a la vez**; los estados terminales (`completado`, `fallido`, `expirado`, `cancelado`) quedan fuera del índice y no chocan. La migración primero canceló los duplicados existentes (conservando el de `updated_at, iniciado_en, id` más alto y anotando el motivo en `error_mensaje`). Un INSERT que viole este índice significa que algo intentó lanzar un segundo flujo — no reintentar a ciegas.
+
 ### flujos_pasos_ejecucion
 
 | Column | Type | Null | Default |
@@ -58,7 +60,8 @@
 
 **Notes:**
 - Table is high-volume: every flow node execution INSERTs one row. Without retention it grows unbounded — production was at ~8.77 GB before the first manual prune in 2026-05.
-- `idx_flujos_pasos_ejecucion_created_at` (added in `20260504120000_flujos_pasos_ejecucion_created_at_index.sql`, built `CONCURRENTLY`) backs manual retention cleanup queries of the form `DELETE … WHERE created_at < now() - INTERVAL '1 month'`. No automated cron — cleanup is paste-and-rerun in the Supabase SQL editor.
+- `idx_flujos_pasos_ejecucion_created_at` (mig **`20260507120000`**, built `CONCURRENTLY`) backs the retention DELETE `WHERE created_at < now() - INTERVAL '1 month'` → ordered index scan, sin seq scan. ⚠️ Doc previa citaba `20260504120000`, timestamp que **no existe** en `supabase/migrations/`.
+- **Ya hay cron** (mig `20260508120000`): `cleanup-flujos-pasos-ejecucion-old`, diario **06:00 UTC** (~03:00 Chile, fuera de los slots 04:00/05:00 que ya usan otros crons), borra las filas de más de 1 mes. Idempotente (`cron.schedule` con el mismo nombre actualiza en sitio). Antes de esto la limpieza era manual y la tabla llegó a ~8.77 GB, disparando la auto-expansión de disco de Supabase (16 → 24 GB).
 - FK `fk_flujos_pasos_ejecucion_ejecucion` is `ON DELETE NO ACTION`, so deleting a parent `flujos_ejecuciones` row that still has children fails. Drain children first, then prune parents that have no remaining children.
 
 ### automatizaciones_ejecuciones

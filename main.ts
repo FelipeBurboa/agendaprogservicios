@@ -1,7 +1,11 @@
 import * as readline from "node:readline/promises";
 import { stdin, stdout } from "node:process";
-import { scrapeBookings, scrapeProducts } from "./src/scraper.js";
-import { generateProductsWorkbookFile, generateWorkbookFile } from "./src/excel.js";
+import { scrapeBookings, scrapeComisiones, scrapeProducts } from "./src/scraper.js";
+import {
+  generateComisionesWorkbookFile,
+  generateProductsWorkbookFile,
+  generateWorkbookFile,
+} from "./src/excel.js";
 import type { MfaCodeRequest } from "./src/types.js";
 
 async function promptMfaCode(request: MfaCodeRequest): Promise<string> {
@@ -33,17 +37,21 @@ async function promptMfaCode(request: MfaCodeRequest): Promise<string> {
 const [email, password, monthsArg] = process.argv.slice(2);
 
 if (!email || !password || !monthsArg) {
-  console.error("Usage: npx tsx main.ts <email> <password> <months|products>");
+  console.error("Usage: npx tsx main.ts <email> <password> <months|products|comisiones>");
   console.error("Example: npx tsx main.ts user@example.com P4ssw0rd 3");
   console.error("Example: npx tsx main.ts user@example.com P4ssw0rd products");
+  console.error("Example: npx tsx main.ts user@example.com P4ssw0rd comisiones");
   process.exit(1);
 }
 
 const productsMode = monthsArg.toLowerCase() === "products";
+const comisionesMode = monthsArg.toLowerCase() === "comisiones";
 
 const months = Number(monthsArg);
-if (!productsMode && (!Number.isFinite(months) || months < 1)) {
-  console.error("Error: <months> must be a positive integer (or 'products').");
+if (!productsMode && !comisionesMode && (!Number.isFinite(months) || months < 1)) {
+  console.error(
+    "Error: <months> must be a positive integer (or 'products' / 'comisiones')."
+  );
   process.exit(1);
 }
 
@@ -60,9 +68,27 @@ async function exportProducts(): Promise<void> {
   console.log("\nDone!");
 }
 
+async function exportComisiones(): Promise<void> {
+  const data = await scrapeComisiones(
+    { email, password },
+    { onMfaCodeRequest: promptMfaCode }
+  );
+
+  await generateComisionesWorkbookFile(data, "comisiones.xlsx");
+  console.log(
+    `comisiones.xlsx saved (${data.servicios.length} servicios, ${data.productos.length} productos)`
+  );
+  console.log("\nDone!");
+}
+
 async function main(): Promise<void> {
   if (productsMode) {
     await exportProducts();
+    return;
+  }
+
+  if (comisionesMode) {
+    await exportComisiones();
     return;
   }
 
