@@ -8,9 +8,8 @@
     "electron:build": "tsc -p tsconfig.json",
     "renderer:build": "cd renderer && npm run build",
     "electron:dev": "npm run electron:build && concurrently -k \"cd renderer && npm run dev\" \"node scripts/wait-and-launch.js\"",
-    "electron:copy-browsers": "node scripts/copy-browsers.js",
-    "electron:pack": "npm run electron:build && npm run renderer:build && npm run electron:copy-browsers && electron-builder --win --publish never",
-    "electron:pack:mac": "npm run electron:build && npm run renderer:build && npm run electron:copy-browsers && electron-builder --mac --publish never"
+    "electron:pack": "npm run electron:build && npm run renderer:build && electron-builder --win --publish never",
+    "electron:pack:mac": "npm run electron:build && npm run renderer:build && electron-builder --mac --publish never"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.111.0",
@@ -18,7 +17,6 @@
     "@types/node": "^25.1.0",
     "exceljs": "^4.4.0",
     "express": "^5.2.1",
-    "playwright": "^1.58.0",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3",
     "xlsx": "^0.18.5"
@@ -38,15 +36,6 @@
       "dist-electron/**/*",
       "dist-renderer/**/*"
     ],
-    "extraResources": [
-      {
-        "from": ".playwright-browsers",
-        "to": "browsers",
-        "filter": [
-          "**/*"
-        ]
-      }
-    ],
     "win": {
       "target": "nsis",
       "icon": "ventaplay-logo-iso.v2.png",
@@ -55,7 +44,7 @@
     "mac": {
       "target": "dmg",
       "category": "public.app-category.utilities",
-      "identity": null
+      "identity": "-"
     },
     "nsis": {
       "oneClick": false,

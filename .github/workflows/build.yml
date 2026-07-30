@@ -24,9 +24,6 @@ jobs:
         run: npm ci
         working-directory: renderer
 
-      - name: Install Playwright Chromium
-        run: npx playwright install chromium
-
       - name: Build and package (Windows)
         run: npm run electron:pack
 
@@ -52,9 +49,6 @@ jobs:
       - name: Install renderer dependencies
         run: npm ci
         working-directory: renderer
-
-      - name: Install Playwright Chromium
-        run: npx playwright install chromium
 
       - name: Build and package (macOS)
         run: npm run electron:pack:mac
