@@ -32,7 +32,6 @@ renderer/
   src/main.tsx      — Punto de entrada React
   src/components/   — ProgressView, ResultsView, ErrorView, MfaPrompt
 scripts/
-  copy-browsers.js  — Copia Chromium de Playwright al bundle
   wait-and-launch.js — Helper para modo desarrollo
 main.ts             — Punto de entrada CLI
 server.ts           — Punto de entrada API REST (Express)
@@ -66,18 +65,28 @@ Esto compila TypeScript, levanta el servidor Vite del renderer y abre la ventana
 **Windows** (genera `.exe` en `release/`):
 
 ```bash
-npx playwright install chromium
 npm run electron:pack
 ```
 
 **macOS** (genera `.dmg` en `release/`):
 
 ```bash
-npx playwright install chromium
 npm run electron:pack:mac
 ```
 
-> **Nota:** El `.dmg` generado no esta firmado. Los usuarios de Mac veran la advertencia "desarrollador no identificado" y deben hacer clic derecho → Abrir.
+> **Nota:** El `.dmg` de macOS tiene firma ad-hoc (sin certificado de Apple). Al abrir la app por primera vez, macOS mostrara el aviso "Apple no puede verificar que 'VentaPlay Extractor' no contiene software malicioso". Para abrirla:
+>
+> 1. Cerrar el aviso con **Listo**.
+> 2. Ir a **Ajustes del Sistema → Privacidad y seguridad**, bajar hasta el mensaje sobre VentaPlay Extractor y pulsar **Abrir de todas formas**.
+> 3. Confirmar con contrasena o Touch ID.
+>
+> Se hace una sola vez por cada version instalada. Alternativa por terminal:
+>
+> ```bash
+> xattr -dr com.apple.quarantine "/Applications/VentaPlay Extractor.app"
+> ```
+>
+> El clic derecho → Abrir ya no sirve para saltarse Gatekeeper en macOS Sequoia (15) o superior.
 
 ### CI/CD con GitHub Actions
 
@@ -249,7 +258,7 @@ Abrir `requests.http` en VS Code con la extension [REST Client](https://marketpl
 
 ## Tecnologias
 
-- **Playwright** — Automatizacion de navegador para login y scraping
+- **fetch** — Llamadas directas a las APIs JSON de AgendaPro (sin navegador)
 - **Express** — Servidor API REST
 - **ExcelJS** — Generacion de archivos Excel
 - **Electron** — Aplicacion de escritorio multiplataforma
