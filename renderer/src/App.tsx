@@ -9,8 +9,10 @@ import type {
 import ErrorView from "./components/ErrorView.tsx";
 import LoginForm from "./components/LoginForm.tsx";
 import MfaPrompt from "./components/MfaPrompt.tsx";
+import ModeSwitch, { type AppMode } from "./components/ModeSwitch.tsx";
 import ProgressView from "./components/ProgressView.tsx";
 import ResultsView from "./components/ResultsView.tsx";
+import ImporterShell from "./components/importer/ImporterShell.tsx";
 
 type AppView = "form" | "progress" | "mfa" | "results" | "error";
 
@@ -51,6 +53,7 @@ function getInitialProgress(exportType: ExportType): ProgressData {
 }
 
 export default function App() {
+  const [mode, setMode] = useState<AppMode>("exportar");
   const [view, setView] = useState<AppView>("form");
   const [progress, setProgress] = useState<ProgressData>({
     current: 0,
@@ -125,15 +128,23 @@ export default function App() {
     setProgress({ current: 0, total: 0, message: "" });
   };
 
+  // A scrape in flight owns the window (MFA prompts, progress); switching mode
+  // mid-run would strand it.
+  const scrapeBusy = view === "progress" || view === "mfa";
+
   return (
     <div className="min-h-screen w-full bg-bg flex flex-col items-center px-6 pt-4 pb-6">
-      {view === "form" && (
+      <ModeSwitch mode={mode} onChange={setMode} disabled={scrapeBusy} />
+
+      {mode === "importar" && <ImporterShell />}
+
+      {mode === "exportar" && view === "form" && (
         <LoginForm initialData={formData} onSubmit={handleStart} />
       )}
-      {view === "progress" && (
+      {mode === "exportar" && view === "progress" && (
         <ProgressView progress={progress} exportType={formData.exportType} />
       )}
-      {view === "mfa" && (
+      {mode === "exportar" && view === "mfa" && (
         <MfaPrompt
           attempt={mfa.attempt}
           error={mfa.error}
@@ -143,10 +154,10 @@ export default function App() {
           onCancel={() => void window.electronAPI.cancelMfa().catch(() => {})}
         />
       )}
-      {view === "results" && results && (
+      {mode === "exportar" && view === "results" && results && (
         <ResultsView results={results} onRestart={handleRestart} />
       )}
-      {view === "error" && (
+      {mode === "exportar" && view === "error" && (
         <ErrorView message={error} onRetry={handleRestart} />
       )}
     </div>

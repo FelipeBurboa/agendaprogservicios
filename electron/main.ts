@@ -1,6 +1,7 @@
 import { app, BrowserWindow, Menu } from "electron";
 import * as path from "path";
 import { registerIpcHandlers } from "./ipc-handlers";
+import { registerImporterIpcHandlers } from "./importer-ipc";
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -8,10 +9,12 @@ function createWindow(): void {
   mainWindow = new BrowserWindow({
     width: 560,
     height: 880,
-    resizable: false,
-    maximizable: false,
+    minWidth: 560,
+    minHeight: 720,
+    resizable: true,
+    maximizable: true,
     fullscreenable: false,
-    title: "VentaPlay - Exportador AgendaPro",
+    title: "VentaPlay - AgendaPro",
     backgroundColor: "#0E0B16",
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
@@ -39,6 +42,7 @@ function createWindow(): void {
 
 app.whenReady().then(() => {
   registerIpcHandlers();
+  registerImporterIpcHandlers();
   createWindow();
 });
 
