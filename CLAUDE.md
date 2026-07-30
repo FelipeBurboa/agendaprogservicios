@@ -73,8 +73,8 @@ in the shape **VentaPlay** expects for import. Migration tooling, not a general 
 - Destination app lives in a sibling repo: `D:\Projectos\ventaplaymrm`.
 - `.claude/skills/ventaplay-schema/` documents VentaPlay's Supabase schema (170 tables).
   Load it when touching export column formats.
-- `README.md` is Spanish end-user docs and lags the code (documents 4 of 7 endpoints,
-  claims Playwright drives scraping — it doesn't). Trust the source over the README.
+- `README.md` is Spanish end-user docs and lags the code (documents 4 of 7 endpoints).
+  Trust the source over the README.
 
 ## Architecture: one core, three frontends
 
@@ -180,8 +180,10 @@ three frontends. That cache is why one code covers many exports across restarts.
   by substring — don't reword them.
 - **One scrape at a time.** A module-level `pendingMfa` promise + 14-min timer holds the MFA
   state, so concurrent scrapes would collide.
-- Packaging: `build` key in `package.json`. Unsigned on both platforms (`signAndEditExecutable:
-  false`, mac `identity: null`). No auto-update, no `electron-updater`.
+- Packaging: `build` key in `package.json`. Windows is unsigned (`signAndEditExecutable: false`);
+  mac is **ad-hoc signed** (`identity: "-"`) — required, since unsigned arm64 bundles are rejected
+  outright with "esta danado". Not notarized, so first launch still needs "Abrir de todas formas"
+  (documented in the README). No auto-update, no `electron-updater`.
 
 ## Commands
 
@@ -195,9 +197,6 @@ npm run renderer:build                      # vite → dist-renderer/
 npm run electron:pack                       # Windows .exe → release/
 npm run electron:pack:mac                   # macOS .dmg → release/
 ```
-
-`npx playwright install chromium` is required before either `pack` — packaging copies Chromium
-into the bundle (see Gotchas #2).
 
 CI (`.github/workflows/build.yml`) builds win+mac installers on `v*` tags or manual dispatch.
 **It never builds or exercises the server.**
@@ -219,10 +218,12 @@ CI (`.github/workflows/build.yml`) builds win+mac installers on `v*` tags or man
 1. **`server.ts` and root `main.ts` are excluded from typecheck.** `tsconfig.json:16` includes
    only `src/**/*` and `electron/**/*`, so `npx tsc --noEmit` silently skips both entry points.
    They only ever run through `tsx`. Typecheck them explicitly if you edit them.
-2. **Playwright is a ~120 MB dead payload.** `playwright` is a runtime dependency and
-   `scripts/copy-browsers.js` + the `extraResources` config ship a full Chromium in the
-   installer, but **no `.ts`/`.tsx` file imports it** and nothing sets `PLAYWRIGHT_BROWSERS_PATH`.
-   Vestigial from a pre-`fetch` era. Don't add browser-based code assuming it's wired up.
+2. **Never set mac `identity` back to `null`.** electron-builder skips signing entirely on
+   `null`, and macOS kills unsigned quarantined arm64 apps with "esta danado y no puede
+   abrirse" — which reads like a corrupt download, not a signing problem. `"-"` is the
+   ad-hoc branch in `app-builder-lib`'s `macPackager`, and it signs nested binaries in the
+   right order. Anything added to `extraResources` must be signable, or it breaks the bundle
+   signature. (A ~120 MB Playwright Chromium used to ship here for no reason; it's gone.)
 3. **JWTs stored unencrypted** in `~/.agendapro-scraper/tokens.json`. Electron's `safeStorage`
    would be the fix if this ever matters.
 4. **The server has no CORS, auth, rate limiting, or request logging**, and credentials travel in
