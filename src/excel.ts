@@ -2,6 +2,8 @@ import ExcelJS from "exceljs";
 import {
   ALT_FILL,
   BLOCKED_HEADERS,
+  COMISION_PRODUCTO_EXPORT_HEADERS,
+  COMISION_SERVICIO_EXPORT_HEADERS,
   HEADER_ALIGNMENT,
   HEADER_FILL,
   HEADER_FONT,
@@ -14,6 +16,7 @@ import {
   type Location,
   type ProductExportRow,
   type ProfessionalSheet,
+  type ScrapedComisiones,
   type ServiceExportRow,
   type SucursalExportRow,
 } from "./types.js";
@@ -128,6 +131,23 @@ function buildProductsWorkbook(
   });
 }
 
+function buildComisionesWorkbook(data: ScrapedComisiones): ExcelJS.Workbook {
+  const wb = new ExcelJS.Workbook();
+  writeSheet(
+    wb.addWorksheet("Comisiones Servicios"),
+    COMISION_SERVICIO_EXPORT_HEADERS,
+    data.servicios,
+    { Valor: "0.00" }
+  );
+  writeSheet(
+    wb.addWorksheet("Comisiones Productos"),
+    COMISION_PRODUCTO_EXPORT_HEADERS,
+    data.productos,
+    { Valor: "0.00" }
+  );
+  return wb;
+}
+
 async function workbookToBuffer(wb: ExcelJS.Workbook): Promise<Buffer> {
   const content = await wb.xlsx.writeBuffer();
   return Buffer.isBuffer(content) ? content : Buffer.from(content);
@@ -188,5 +208,20 @@ export async function generateProductsWorkbookBuffer(
   locationNames: string[]
 ): Promise<Buffer> {
   const wb = buildProductsWorkbook(rows, locationNames);
+  return workbookToBuffer(wb);
+}
+
+export async function generateComisionesWorkbookFile(
+  data: ScrapedComisiones,
+  filePath: string
+): Promise<void> {
+  const wb = buildComisionesWorkbook(data);
+  await wb.xlsx.writeFile(filePath);
+}
+
+export async function generateComisionesWorkbookBuffer(
+  data: ScrapedComisiones
+): Promise<Buffer> {
+  const wb = buildComisionesWorkbook(data);
   return workbookToBuffer(wb);
 }

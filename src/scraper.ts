@@ -5,7 +5,10 @@ import {
   fetchAdminLocations,
   fetchAllBookings,
   fetchAllProducts,
+  fetchCommissionProviders,
   fetchLocations,
+  fetchProductCommissions,
+  fetchProviderServiceCommissions,
   fetchServiceCategories,
   fetchServiceProviders,
   sleep,
@@ -15,10 +18,15 @@ import type {
   AgendaProAddressComponent,
   AgendaProLocationDetail,
   AgendaProLocationAttachment,
+  AgendaProProductCommission,
   AgendaProProviderAttachment,
+  AgendaProServiceCommission,
   AgendaProServiceProvider,
   AuthOptions,
   BookingParams,
+  ComisionProductoExportRow,
+  ComisionServicioExportRow,
+  ComisionTipo,
   Credentials,
   Location,
   ProductExportRow,
@@ -26,6 +34,7 @@ import type {
   ProfessionalExportRow,
   ProfessionalSheet,
   ScrapedBookings,
+  ScrapedComisiones,
   ScrapedProducts,
   ScrapedProfessionals,
   ServiceExportRow,
@@ -512,6 +521,103 @@ export async function scrapeProducts(
   );
 
   return { rows, locationNames };
+}
+
+/**
+ * AgendaPro flags percentages with a boolean on services and with a numeric
+ * option on products; 0 is the only value seen in captures, and it means the
+ * same thing `is_percent: true` does.
+ */
+function commissionTipo(isPercent: boolean): ComisionTipo {
+  return isPercent ? "porcentaje" : "monto_fijo";
+}
+
+export function mapServiceCommissionRows(
+  providerName: string,
+  commissions: AgendaProServiceCommission[]
+): ComisionServicioExportRow[] {
+  // AgendaPro names routinely carry trailing spaces ("Valentina ", "Mario ");
+  // the importer matches on name, so trim on the way out.
+  const profesional = normalizeText(providerName);
+  const rows: ComisionServicioExportRow[] = [];
+  for (const commission of commissions) {
+    const valor = Number(commission.amount) || 0;
+    if (valor === 0) {
+      continue;
+    }
+    rows.push({
+      Profesional: profesional,
+      Servicio: normalizeText(commission.service_name),
+      Tipo: commissionTipo(commission.is_percent),
+      Valor: valor,
+    });
+  }
+  return rows;
+}
+
+export function mapProductCommissionRows(
+  commissions: AgendaProProductCommission[]
+): ComisionProductoExportRow[] {
+  const rows: ComisionProductoExportRow[] = [];
+  for (const commission of commissions) {
+    const valor = Number(commission.commission_value) || 0;
+    if (valor === 0) {
+      continue;
+    }
+    rows.push({
+      Producto: normalizeText(commission.name),
+      Tipo: commissionTipo(commission.commission_option === 0),
+      Valor: valor,
+    });
+  }
+  return rows;
+}
+
+/**
+ * Commissions as VentaPlay imports them: flat, name-keyed rows. Services come
+ * per (profesional, servicio); product commissions are company-wide, so they
+ * carry no profesional. Zero-valued rows are dropped — AgendaPro writes 0 for
+ * "not configured", which is already VentaPlay's default.
+ */
+export async function scrapeComisiones(
+  credentials: Credentials,
+  options: AuthOptions = {}
+): Promise<ScrapedComisiones> {
+  const token = await authenticateAgendaPro(credentials, options);
+  const providers = await fetchCommissionProviders(token);
+
+  const servicios: ComisionServicioExportRow[] = [];
+  for (let index = 0; index < providers.length; index++) {
+    const provider = providers[index];
+    const providerName = normalizeText(provider.public_name);
+    console.log(
+      `  [${index + 1}/${providers.length + 1}] Fetching commissions: ${providerName}`
+    );
+
+    if (index > 0) {
+      await sleep(300);
+    }
+
+    const commissions = await fetchProviderServiceCommissions(token, provider.id);
+    servicios.push(...mapServiceCommissionRows(providerName, commissions));
+  }
+
+  console.log(`  [${providers.length + 1}/${providers.length + 1}] Fetching commissions: productos`);
+  const productCommissions = await fetchProductCommissions(token);
+  const productos = mapProductCommissionRows(productCommissions);
+
+  servicios.sort(
+    (left, right) =>
+      left.Profesional.localeCompare(right.Profesional) ||
+      left.Servicio.localeCompare(right.Servicio)
+  );
+  productos.sort((left, right) => left.Producto.localeCompare(right.Producto));
+
+  console.log(
+    `  Flattened ${servicios.length} service commissions and ${productos.length} product commissions`
+  );
+
+  return { servicios, productos };
 }
 
 export async function scrapeBookingsWithContext(

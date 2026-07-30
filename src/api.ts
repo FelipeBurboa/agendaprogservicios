@@ -1,6 +1,9 @@
 import type {
+  AgendaProCommissionProvider,
   AgendaProLocationDetail,
+  AgendaProProductCommission,
   AgendaProServiceCategory,
+  AgendaProServiceCommission,
   AgendaProServiceProvider,
   BookingsResponse,
   Location,
@@ -193,6 +196,57 @@ export async function fetchServiceProviders(
   );
   console.log(`  Found ${providers.length} professionals`);
   return providers;
+}
+
+/**
+ * Providers that have at least one service commission configured. Company-wide,
+ * not location-scoped, and unpaginated.
+ */
+export async function fetchCommissionProviders(
+  token: string,
+  signal?: AbortSignal
+): Promise<AgendaProCommissionProvider[]> {
+  console.log("Fetching commission providers...");
+  const providers = await apiGet<AgendaProCommissionProvider[]>(
+    token,
+    "v1/commissions/service_provider",
+    3,
+    signal,
+    API_BASE_LEGACY
+  );
+  console.log(`  Found ${providers.length} providers with commissions`);
+  return providers;
+}
+
+export async function fetchProviderServiceCommissions(
+  token: string,
+  providerId: number,
+  signal?: AbortSignal
+): Promise<AgendaProServiceCommission[]> {
+  return apiGet<AgendaProServiceCommission[]>(
+    token,
+    `v1/commissions/service_provider/${providerId}`,
+    3,
+    signal,
+    API_BASE_LEGACY
+  );
+}
+
+/** Product commissions are company-wide — one value per product, no provider. */
+export async function fetchProductCommissions(
+  token: string,
+  signal?: AbortSignal
+): Promise<AgendaProProductCommission[]> {
+  console.log("Fetching product commissions...");
+  const products = await apiGet<AgendaProProductCommission[]>(
+    token,
+    "v1/commissions/product",
+    3,
+    signal,
+    API_BASE_LEGACY
+  );
+  console.log(`  Found ${products.length} products with commission config`);
+  return products;
 }
 
 /**
