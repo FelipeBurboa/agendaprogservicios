@@ -42,6 +42,97 @@ export interface MfaRequiredData {
   error?: string;
 }
 
+// ─── VentaPlay importer ───────────────────────────────────────────────────
+// Types mirrored from src/ventaplay/types.ts. Keep preload.ts and
+// renderer/src/types.ts in sync when changing any of these.
+
+export type ImporterEntity =
+  | "clientes"
+  | "sucursales"
+  | "servicios"
+  | "productos"
+  | "profesionales"
+  | "comisiones"
+  | "citas"
+  | "bloqueos";
+
+export type ImportStatus =
+  | "idle"
+  | "parsing"
+  | "importing"
+  | "done"
+  | "cancelled"
+  | "error";
+
+export interface ImporterProgressPayload {
+  entity: ImporterEntity | "atenciones";
+  total: number;
+  processed: number;
+  successful: number;
+  updated: number;
+  skipped: number;
+  errorCount: number;
+  currentBatch: number;
+  totalBatches: number;
+  status: ImportStatus;
+  message?: string;
+}
+
+export interface ImportRowError {
+  row: number;
+  sheet?: string;
+  error: string;
+  data?: string;
+}
+
+export interface ImportResult {
+  summary: ImporterProgressPayload;
+  errorsPreview: ImportRowError[];
+  totalErrors: number;
+}
+
+export interface OrgSummary {
+  id: string;
+  nombre: string;
+}
+
+export type VpLoginResult =
+  | {
+      ok: true;
+      user: { id: string; nombre: string; email: string };
+      expiresAt: string;
+    }
+  | { ok: false; error: string; message: string };
+
+export interface VpSessionStatus {
+  loggedIn: boolean;
+  email?: string;
+  nombre?: string;
+  expiresAt?: string;
+}
+
+export interface ImportOptions {
+  usarStockPorSucursal?: boolean;
+}
+
+export interface ImporterRunParams {
+  entity: ImporterEntity;
+  filePath: string;
+  organizacionId: string;
+  options?: ImportOptions;
+}
+
+export interface AtencionesParams {
+  organizacionId: string;
+  fechaInicio: string;
+  fechaFin: string;
+}
+
+export interface SelectedFile {
+  path: string;
+  name: string;
+}
+
 contextBridge.exposeInMainWorld("electronAPI", {
   selectSaveFolder: (): Promise<string | null> =>
     ipcRenderer.invoke("scraper:select-folder"),
@@ -85,5 +176,51 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.removeAllListeners("scraper:mfa-required");
     ipcRenderer.removeAllListeners("scraper:mfa-resent");
     ipcRenderer.removeAllListeners("scraper:mfa-timeout");
+  },
+
+  // ─── VentaPlay importer ─────────────────────────────────────────────────
+  importerLogin: (creds: {
+    email: string;
+    password: string;
+  }): Promise<VpLoginResult> => ipcRenderer.invoke("importer:login", creds),
+
+  importerLogout: (): Promise<void> => ipcRenderer.invoke("importer:logout"),
+
+  importerSessionStatus: (): Promise<VpSessionStatus> =>
+    ipcRenderer.invoke("importer:session-status"),
+
+  importerListOrgs: (): Promise<OrgSummary[]> =>
+    ipcRenderer.invoke("importer:list-orgs"),
+
+  importerSelectFile: (): Promise<SelectedFile | null> =>
+    ipcRenderer.invoke("importer:select-file"),
+
+  importerRun: (params: ImporterRunParams): Promise<ImportResult> =>
+    ipcRenderer.invoke("importer:run", params),
+
+  importerCancel: (): Promise<void> => ipcRenderer.invoke("importer:cancel"),
+
+  importerAtencionesPreview: (
+    params: AtencionesParams,
+  ): Promise<{ count: number }> =>
+    ipcRenderer.invoke("importer:atenciones-preview", params),
+
+  importerAtencionesRun: (params: AtencionesParams): Promise<ImportResult> =>
+    ipcRenderer.invoke("importer:atenciones-run", params),
+
+  importerSaveErrorCsv: (): Promise<string | null> =>
+    ipcRenderer.invoke("importer:save-error-csv"),
+
+  onImporterProgress: (
+    callback: (data: ImporterProgressPayload) => void,
+  ): void => {
+    ipcRenderer.on(
+      "importer:progress",
+      (_event, data: ImporterProgressPayload) => callback(data),
+    );
+  },
+
+  removeImporterProgressListeners: (): void => {
+    ipcRenderer.removeAllListeners("importer:progress");
   },
 });
