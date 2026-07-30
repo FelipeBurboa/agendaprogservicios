@@ -23,6 +23,8 @@
 
 ### email_templates
 
+> **Plantillas predefinidas de citas (migs `20260830120002`, `20260921130000`, `20260921150000`, `20260923130000`):** dos helpers SECURITY DEFINER las siembran por organización — `crear_plantillas_email_citas(org) → TABLE(confirmacion_id, reagendamiento_id, cancelacion_id)` (3 plantillas) y `crear_plantilla_email_recordatorio(org) → uuid` (1 más, "Recordatorio de Cita"; **service_role-only**, REVOKEd de anon/authenticated). Todas nacen `template_type='builder'`, `category='transaccional'`, `is_active=true`, y las consume `provision_organizacion` para dejar las automatizaciones de email de cita con `email_template_id` ya resuelto. Cada reescritura del helper (branding morado `#450693` + footer "Powered by VentaPlay"; bloque `calendar_cta` en Confirmación y Reagendamiento) trae `UPDATE`s **guardados por igualdad exacta del `html_content` anterior** → si la org editó su plantilla, no se pisa. Ver [organizations-config.md](organizations-config.md).
+
 | Column | Type | Null | Default |
 |--------|------|------|---------|
 | organizacion_id | uuid | ✓ | - |
@@ -126,6 +128,7 @@
 | created_by | uuid | ✓ | - |
 | created_at | timestamptz | ✗ | now() |
 | updated_at | timestamptz | ✗ | now() |
+| is_multi_org | bool | ✗ | false |
 
 **FK →** created_by → `usuarios.id` (ON DELETE SET NULL) |
 
@@ -143,4 +146,7 @@
 - `dns_mode = 'manual'` → customer manages DNS in their own panel. Records stored in `dns_records` and surfaced in the `DnsRecordsModal` for copy/paste. Status flips to `verified` automatically via the `resend-webhook` edge function on `domain.updated` events.
 - `status` is backfilled by the `resend-webhook` edge function when Resend fires `domain.created` / `domain.updated`. `last_verified_at` is set when status transitions to `verified`.
 - `route53_change_id` stores the AWS ChangeBatch id for debugging DNS propagation in the route53 path.
+- `pending_organizacion_id` (FK `organizaciones` SET NULL) + `pending_local_part` + `pending_sender_name` (mig `20260828120001_email_domain_pending_assignment.sql`) — **asignación diferida** para dominios auto-aprovisionados: cuando una org nueva se crea con provisioning de email, la asignación pretendida (org + local part + sender name) se registra acá; el `resend-webhook` (o la acción manual `verify`) la COMPLETA cuando el dominio pasa a `verified` (crea/actualiza la `configuracion_email` de la org) y limpia las tres columnas. NULL = sin asignación pendiente.
+- **Cron `reconcile-email-domains`** (mig `20260829120000`, cada 5 min) — safety net del webhook: si hay dominios sin verificar (< 14 días) o `verified` con `pending_organizacion_id` sin completar (caso real jul-2026: el evento `domain.updated` de Resend nunca llegó y el dominio quedó pegado en `pending`), invoca la acción `reconcile` de la edge `email-domain-manager` (verify_jwt=false) vía `pg_net.http_post` fire-and-forget (URL desde `app_global_config.supabase_functions_url`). Sin candidatos, el job es solo un `EXISTS` barato; EXCEPTION handler nunca rompe el job.
+- `is_multi_org` (mig `20260715120000_add_is_multi_org_to_email_domains.sql`) — policy flag. `false` (default) = el dominio puede asignarse a lo sumo a UNA organización. `true` = compartible por varias orgs (cada una mantiene su `configuracion_email` apuntando al mismo `email_domain_id` y envía desde la misma dirección con su propio nombre de org como display name). NUNCA lo lee `send-email` (que resuelve el sender por org) — solo gatea lo que permite la UI de Dominios / `email-domain-manager` al momento de asignar.
 

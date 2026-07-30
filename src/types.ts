@@ -264,6 +264,54 @@ export interface ScrapedProducts {
   locationNames: string[];
 }
 
+// ─── Comisiones ──────────────────────────────────────────────────────────────
+
+export interface AgendaProCommissionProvider {
+  id: number;
+  company_id: number;
+  public_name: string;
+  service_count: number;
+}
+
+export interface AgendaProServiceCommission {
+  id: number;
+  service_id: number;
+  service_name: string;
+  provider_id: number;
+  provider_name: string;
+  amount: number;
+  is_percent: boolean;
+}
+
+export interface AgendaProProductCommission {
+  id: number;
+  company_id: number;
+  name: string;
+  commission_value: string;
+  commission_option: number;
+}
+
+/** VentaPlay's `comisiones_json` commission kinds. */
+export type ComisionTipo = "porcentaje" | "monto_fijo";
+
+export interface ComisionServicioExportRow {
+  Profesional: string;
+  Servicio: string;
+  Tipo: ComisionTipo;
+  Valor: number;
+}
+
+export interface ComisionProductoExportRow {
+  Producto: string;
+  Tipo: ComisionTipo;
+  Valor: number;
+}
+
+export interface ScrapedComisiones {
+  servicios: ComisionServicioExportRow[];
+  productos: ComisionProductoExportRow[];
+}
+
 // ─── Excel constants ─────────────────────────────────────────────────────────
 
 export const RESERVED_HEADERS = [
@@ -344,6 +392,24 @@ export const PRODUCT_EXPORT_BASE_HEADERS = [
   "Costo",
   "Precio venta externa",
   "Precio venta interna",
+] as const;
+
+/**
+ * Comisiones export columns. Rows are name-keyed, not id-keyed: AgendaPro ids
+ * mean nothing in VentaPlay, so the importer resolves `Servicio`/`Producto`
+ * names to UUIDs when building `profesionales.comisiones_json`.
+ */
+export const COMISION_SERVICIO_EXPORT_HEADERS = [
+  "Profesional",
+  "Servicio",
+  "Tipo",
+  "Valor",
+] as const;
+
+export const COMISION_PRODUCTO_EXPORT_HEADERS = [
+  "Producto",
+  "Tipo",
+  "Valor",
 ] as const;
 
 export function buildProductHeaders(locationNames: string[]): string[] {

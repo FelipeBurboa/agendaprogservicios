@@ -1,6 +1,6 @@
 # Payments & Billing
 
-> 12 tables in this domain
+> 17 tables in this domain
 
 ### medios_pago
 
@@ -56,13 +56,15 @@
 
 **Indexes:** `link_pagos_tuu_tx_token_idx` on `(tuu_tx_token)` WHERE NOT NULL | `link_pagos_verificacion_pending_idx` on `(id)` WHERE `pago_verificacion_estado = 'pending'` | `idx_link_pagos_cotizacion` on `(cotizacion_id)` WHERE NOT NULL (mig `20260702120000`) |
 
-**Prepago de cotizaciones (mig `20260702120000_cotizaciones_prepago.sql`, vertical Taller):** `cotizacion_id` vincula un cobro de anticipo a su cotización. Trigger `tr_link_pagos_cotizacion_on_paid` (AFTER UPDATE OF `pagado`) → función SECURITY DEFINER `link_pagos_cotizacion_on_paid()`: cuando `pagado` pasa a `true` y hay `cotizacion_id`, auto-acepta la cotización (`estado='aceptada'` si estaba en `borrador|enviada|vista`, `fecha_aceptacion = COALESCE(existente, now())`) e inserta evento `aceptada` (actor `cliente_publico`, payload `{via:'prepago', ref, monto}`) en `cotizaciones_eventos`. Corre sin importar QUÉ código marque pagado (confirm TUU, toggle manual). Las columnas `cotizaciones.prepago_requerido` / `prepago_porcentaje` y el resto de la vertical Cotizaciones se documentan en el skill **`ventaplay-taller`**.
+**Prepago de cotizaciones → atención (migs `20260702120000` + `20260721120000`, vertical Taller):** `cotizacion_id` vincula un cobro de anticipo a su cotización. Trigger `tr_link_pagos_cotizacion_on_paid` — desde `20260721120000_cotizacion_pago_crea_atencion.sql` es **BEFORE** UPDATE OF `pagado` (antes era AFTER) → función SECURITY DEFINER `link_pagos_cotizacion_on_paid()`: cuando `pagado` pasa a `true`, hay `cotizacion_id` y `NEW.atencion_id IS NULL`, llama a `convertir_cotizacion_en_atencion(cotizacion_id, cotizaciones.usuario_id)` y setea `NEW.atencion_id` con la atención resultante (idempotente: si ya existía la reusa). Al ser BEFORE, ese `atencion_id` queda en el RETURNING del UPDATE → el pipeline de pago (`ensureIngresoForPaidLink`) adjunta su único ingreso a esa atención, sin doble conteo. La RPC además deja la cotización en `aceptada` (reemplaza el auto-accept del trigger AFTER anterior de `20260702120000`). EXCEPTION handler: si la conversión falla, el anticipo igual se marca pagado (degradado, sin atención). Las columnas `cotizaciones.*` (incl. `prepago_requerido`/`prepago_porcentaje`/`profesional_id`) y el resto de la vertical Cotizaciones → skill **`ventaplay-taller`**; `atenciones.cotizacion_origen_id` + la RPC `convertir_cotizacion_en_atencion` → [atenciones-sessions.md](atenciones-sessions.md).
 
 **TUU optimistic-redirect flow (migs `20260425123000`–`20260425220000`):**
 - `pago_optimista_at` is set when the UI redirects the user as if payment succeeded; the actual TUU verification runs asynchronously in `verify-tuu-payment-background`. The `pending` partial index drives that worker's queue.
 - `pago_verificacion_estado` transitions `NULL → pending → verified | rejected`. `pago_verificacion_intentos` and `pago_verificacion_log` accumulate retry state.
 - `notificado_pago_at` is **independent** of verification — it tracks user-facing notification (e.g. "su pago fue confirmado"), not the verification itself.
 - `origen_url` records where the payment link was opened (used to attribute checkout origin for analytics).
+
+**Automatización `link_pago_enviado` (mig `20260923120000`):** trigger `tr_link_pago_enviado_db` AFTER INSERT ON `link_pagos` **WHEN `NEW.origen_url IS NULL`** → `trigger_link_pago_enviado_to_edge()` (SECURITY DEFINER, `search_path = ''`), `net.http_post` fire-and-forget a `<supabase_functions_url>/trigger-automatizaciones` (timeout 2 s, excepciones a `RAISE WARNING`). El guard por `origen_url IS NULL` distingue el link **enviado al cliente** de los creados por el checkout público. `tipo_evento='link_pago_enviado'` es el 17º valor del CHECK de `automatizaciones_whatsapp`.
 
 ### configuracion_link_pago
 
@@ -130,6 +132,15 @@
 
 `datos_medio_pago` (mig `20260705120000_medios_pago_campos_configurables.sql`) — valores capturados al cobrar para los campos personalizados definidos en `medios_pago.campos_config`. Shape: objeto `{ "<key>": <valor>, ... }`. NULL para ingresos sin campos personalizados (todos los previos a la feature).
 
+**Constraints de origen (DROP+ADD en mig `20260924120000`):**
+- `ingresos_origen_tipo_check` → `origen_tipo IN ('atencion','venta_externa','propina_directa','pos_manual')` (**4 valores**; `pos_manual` nuevo).
+- `ingresos_origen_consistencia_check` → 4 ramas: `atencion` (venta_externa_id NULL) · `venta_externa` (venta_externa_id NOT NULL **y** atencion_id NULL) · `propina_directa` (ambos NULL) · `pos_manual` (venta_externa_id NULL; `atencion_id` **puede** ser NULL y llenarse después).
+
+`origen_tipo='pos_manual'` = cobro hecho en el equipo POS sin atención asociada, que después se engancha a una atención desde el CRM:
+- **`asignar_ingreso_a_atencion(p_ingreso_id uuid, p_atencion_id uuid, p_usuario_id uuid DEFAULT NULL, p_propinas jsonb DEFAULT NULL) → json`** — DROP+CREATE (ganó `p_propinas`). Adjunta el ingreso y recalcula el estado de pago.
+- **`desasignar_ingreso_de_atencion(p_ingreso_id uuid, p_usuario_id uuid DEFAULT NULL) → json`** — lo suelta y recalcula.
+Ambas SECURITY DEFINER, `GRANT ALL` a `anon, authenticated, service_role`.
+
 ### RPCs on `ingresos`
 
 #### `get_ingresos_con_datos_v2(... , por_fecha_atencion boolean DEFAULT false) → TABLE`
@@ -142,6 +153,8 @@ Aggregated reporting query used by the ingresos listing. Returns per-ingreso row
 - `profesionales_nombres text` — comma-joined list of ALL professionals involved in the atención (supports multi-pro atenciones for search/filter UI). Same migration.
 
 **Timezone fix (`20260417120000_fix_timezone_get_ingresos_con_datos_v2.sql` + `20260417130000_fix_timezone_atenciones_rpcs.sql`):** All `fecha_desde`/`fecha_hasta` comparisons now wrap `fecha_pago` / `fecha_inicio` in `AT TIME ZONE 'America/Santiago'` before casting to `::date`. This fixes off-by-one day filtering near midnight UTC. The same TZ fix was applied to `get_atencion_financial_stats` in `20260417130000`.
+
+**`origen_tipo='propina_directa'`** nació en la mig `20260515120000_ingresos_propina_directa.sql` (propina cobrada sin atención ni venta externa).
 
 **`propina_directa` patch (mig `20260608120000_get_ingresos_con_datos_v2_propina_directa_fecha_pago.sql`):** Cierre Diario llama esta RPC con `por_fecha_atencion=true`, modo en el que el filtro de fecha usa `a.fecha_inicio` (la atención). Pero una `propina_directa` no tiene atención (`atencion_id IS NULL`) → `a.fecha_inicio IS NULL` → `NULL >= fecha_desde` nunca es TRUE → la fila quedaba EXCLUIDA → la propina nunca se contaba en la caja. Fix: nueva rama `WHEN i.origen_tipo = 'propina_directa' THEN i.fecha_pago` agregada al CASE del WHERE, colocada ANTES de la rama `por_fecha_atencion` (first-match-wins). Espeja la rama existente de `venta_externa` (ambas son ingresos sin atención). Signature y `RETURNS TABLE` idénticos → `CREATE OR REPLACE` preserva GRANTs.
 
@@ -174,6 +187,22 @@ Always prefer `(fecha_pago AT TIME ZONE 'America/Santiago')::date` (or `fecha_in
 
 **Sin cambios** (preservados verbatim del comportamiento anterior): toda la lógica de cita_id fallback, el `EXCEPTION WHEN OTHERS` global, la idempotencia (solo UPDATE si el estado cambió). El trigger sigue siendo el mismo objeto en BD — solo cambia el cuerpo de la función. Cero riesgo de schema change.
 
+#### `obtener_pagos_netos_atenciones(p_atencion_ids uuid[]) → TABLE(atencion_id, total_pagado numeric, total_consumo numeric)`
+
+(mig `20260812120000`) Wrapper batch de `calcular_total_pagado_atencion` para prorratear comisiones en atenciones parcialmente pagadas (`estado_pago='abonado'`) desde la vista Comisiones y `/reporte-profesional`, SIN re-derivar la fórmula de pago client-side. Devuelve además `total_consumo` de la misma fila (denominador del factor de prorrateo, consistente con el estado). SQL STABLE SECURITY DEFINER, GRANT a anon/authenticated/service_role.
+
+#### `get_kpis_negocio(p_organizacion_id uuid, p_fecha_desde date, p_fecha_hasta date) → jsonb`
+
+(migs `20260814120000` v1, `20260814120001` grants, `20260814120002` v2) Reporte de KPIs para la API externa `get-business-report` (portal Configuración → API, categoría Reportes). jsonb con: `atenciones` (reusa `get_atencion_financial_stats` — reversos inteligentes, por `fecha_inicio` tz Chile), `ingresos` (v2 — TODO lo que entró en el período por `fecha_pago`, por `origen_tipo`, con la misma lógica de reversos; pregunta distinta a `atenciones.*`, no es doble conteo), `citas` (total + breakdown por estado, por `fecha_cita`) y `top_servicios` (top 10 por monto sobre atenciones finalizadas/reabierto). **Seguridad: recibe la org como PARÁMETRO → EXECUTE SOLO `service_role`.** El `REVOKE ... FROM PUBLIC` de la v1 NO alcanzó — los DEFAULT PRIVILEGES de Supabase grantean EXECUTE explícito a anon/authenticated en cada función nueva, así que `20260814120001` revoca explícitamente de anon/authenticated (era un IDOR: cualquiera con el anon key pedía el reporte de cualquier org). Patrón a recordar para toda RPC parametrizada por org.
+
+#### `get_kpis_profesional(p_org_id uuid, p_desde date, p_hasta date) → TABLE(profesional_id uuid, profesional_nombre text, n_atenciones integer, produccion numeric, ingresos numeric, venta_interna numeric, comision numeric, propinas numeric)`
+
+Migraciones `20260601185624` (versión inicial de 6 columnas) → `20260601194907` (**DROP+CREATE**: agrega `ingresos` y `venta_interna` → 8 columnas, forma vigente) → `20260601224732` (excluye propinas anuladas) → `20260602165353` (venta interna desde bodega). `LANGUAGE sql STABLE`, `SET search_path = public`, SECURITY INVOKER. Solo cuenta atenciones `estado='finalizada' AND estado_pago='pagado'`, con el día bucketeado en `AT TIME ZONE 'America/Santiago'`. GRANT EXECUTE a `anon, authenticated, service_role`.
+
+#### `get_propinas_totales(p_org, p_restrict_prof uuid[], p_tipo, p_estado, p_from, p_to, p_profesional_id, p_sucursal_prof uuid[], p_ingreso_ids uuid[]) → TABLE(total_count, total_monto, count_activas, promedio_percent)`
+
+(mig `20260811120000`) Totales de propinas EXACTOS sobre el conjunto filtrado, sin depender del `max_rows=1000` de PostgREST. La UI (`usePropinasHistory`) la usa para las tarjetas KPI y el conteo de paginación, con los mismos filtros que la tabla. `total_monto`/`promedio_percent` EXCLUYEN anuladas; `total_count` cuenta todas las filas que cumplen filtros (incluye anuladas con `p_estado='all'`) para que coincida con la paginación. SQL STABLE, GRANT solo a `authenticated`. `p_restrict_prof` = restricción del rol professional (ver `organizaciones.propina_visible_profesional`).
+
 ### estadisticas_ingresos_reales
 
 | Column | Type | Null | Default |
@@ -200,6 +229,98 @@ Always prefer `(fecha_pago AT TIME ZONE 'America/Santiago')::date` (or `fecha_in
 | ingreso_id | uuid | ✓ | - |
 
 **FK →** organizacion_id → `organizaciones.id` | ingreso_id → `ingresos.id` | atencion_id → `atenciones.id` |
+
+**Notes:** ⚠️ **No confundir con `giftcards_emitidas`** (abajo). Esta tabla registra el **uso** de una giftcard como medio de pago de una atención (histórico, sin saldo ni ciclo de vida). Las giftcards que la organización **emite y vende**, con saldo y vencimiento, viven en `giftcards_emitidas`; al canjearse escriben una fila acá **y** una en `giftcard_canjes`.
+
+## Giftcards emitidas (venta, saldo y canje)
+
+> Migraciones `20260922120000` (2 tablas + RPCs), `20260922130000` (cron), `20260922140000` (editar/recargar), `20260922150000` + `20260922160000` (log de externas), `20260922170000` (tabla de eventos + instrumentación). Vertical completa: la org **emite** giftcards con código, saldo y vencimiento; se canjean parcialmente contra atenciones hasta agotar el saldo. **Sin RLS — grants-only** (postura del proyecto, espejo de `stock_por_ubicacion`); el aislamiento por org lo hacen las RPCs (`get_current_custom_user_organization()` / `is_super_admin()`).
+
+### giftcards_emitidas
+
+| Column | Type | Null | Default |
+|--------|------|------|---------|
+| id | uuid | ✗ | gen_random_uuid() |
+| organizacion_id | uuid | ✗ | - |
+| codigo | text | ✗ | - |
+| monto_inicial | numeric(10,2) | ✗ | - |
+| saldo | numeric(10,2) | ✗ | - |
+| estado | text | ✗ | `activa` |
+| fecha_vencimiento | date | ✓ | - |
+| creado_por_usuario_id | uuid | ✓ | - |
+| anulada_por_usuario_id | uuid | ✓ | - |
+| fecha_anulacion | timestamptz | ✓ | - |
+| created_at | timestamptz | ✗ | now() |
+
+**FK →** organizacion_id → `organizaciones.id` (NO ACTION) | creado_por_usuario_id → `usuarios.id` (NO ACTION) | anulada_por_usuario_id → `usuarios.id` (NO ACTION) |
+
+**Constraints:** UNIQUE on `codigo` — **global, no por org** | CHECK `codigo = upper(codigo)` | CHECK `monto_inicial > 0` | CHECK `saldo >= 0` | CHECK `estado IN ('activa','agotada','vencida','anulada')` |
+
+**Indexes:** `idx_giftcards_emitidas_org` on `(organizacion_id, created_at DESC)` |
+
+**Notes:** Código `GC-` + 12 chars del alfabeto sin ambigüedades `ABCDEFGHJKMNPQRSTUVWXYZ23456789` (10 reintentos ante colisión), o `p_codigo_custom`. La unicidad global del código es deliberada: el canje se hace por código sin conocer la org.
+
+### giftcard_canjes
+
+| Column | Type | Null | Default |
+|--------|------|------|---------|
+| id | uuid | ✗ | gen_random_uuid() |
+| giftcard_emitida_id | uuid | ✗ | - |
+| organizacion_id | uuid | ✗ | - |
+| atencion_id | uuid | ✗ | - |
+| ingreso_id | uuid | ✓ | - |
+| monto | numeric(10,2) | ✗ | - |
+| created_at | timestamptz | ✗ | now() |
+
+**FK →** giftcard_emitida_id → `giftcards_emitidas.id` (NO ACTION) | organizacion_id → `organizaciones.id` (NO ACTION) | `atencion_id` e `ingreso_id` son uuid **sin FK** |
+
+**Constraints:** CHECK `monto > 0` |
+
+**Indexes:** `idx_giftcard_canjes_ingreso` on `(ingreso_id)` | `idx_giftcard_canjes_emitida` on `(giftcard_emitida_id)` |
+
+**Notes:** Cada canje descuenta de `giftcards_emitidas.saldo`. Es el puente que permite **restaurar saldo al anular el ingreso** (ver `anular_ingreso_con_reverso` abajo).
+
+### giftcards_emitidas_eventos
+
+> Bitácora append-only por giftcard (mig `20260922170000`).
+
+| Column | Type | Null | Default |
+|--------|------|------|---------|
+| id | uuid | ✗ | gen_random_uuid() |
+| giftcard_emitida_id | uuid | ✗ | - |
+| organizacion_id | uuid | ✗ | - |
+| evento | text | ✗ | - |
+| usuario_id | uuid | ✓ | - |
+| usuario_nombre | text | ✓ | - |
+| monto | numeric(10,2) | ✓ | - |
+| detalles | jsonb | ✓ | - |
+| created_at | timestamptz | ✗ | now() |
+
+**FK →** giftcard_emitida_id → `giftcards_emitidas.id` (NO ACTION) | organizacion_id → `organizaciones.id` (NO ACTION). `usuario_id` **sin FK** (NULL = Sistema); `usuario_nombre` denormalizado sobrevive el borrado del usuario.
+
+**Constraints:** CHECK `evento IN ('creada','canjeada','anulada','vencimiento_editado','recargada','saldo_restaurado','vencida')` |
+
+**Indexes:** `idx_gce_eventos_card` on `(giftcard_emitida_id, created_at DESC)` |
+
+**Grants:** SELECT + INSERT a `anon, authenticated, service_role` — **sin UPDATE/DELETE** a propósito (append-only). La migración backfilleó un evento `creada` por cada giftcard preexistente.
+
+### RPCs de giftcards emitidas
+
+| RPC | Firma | Notas |
+|---|---|---|
+| `crear_giftcards_emitidas` | `(p_organizacion_id uuid, p_cantidad int, p_monto numeric, p_fecha_vencimiento date DEFAULT NULL, p_codigo_custom text DEFAULT NULL) → SETOF giftcards_emitidas` | cantidad 1..200 |
+| `validar_giftcard_emitida` | `(p_codigo text) → TABLE(id, saldo, estado, fecha_vencimiento, monto_inicial)` | sql STABLE, lectura previa al canje |
+| `canjear_giftcard_emitida` | `(p_codigo text, p_monto numeric, p_atencion_id uuid, p_ingreso_id uuid DEFAULT NULL) → json` | `FOR UPDATE` sobre la card; escribe `giftcards` + `giftcard_canjes`; agota → `estado='agotada'` |
+| `anular_giftcard_emitida` | `(p_id uuid) → json` | solo desde `activa` o `vencida` |
+| `editar_giftcard_emitida` | `(p_id uuid, p_fecha_vencimiento date DEFAULT NULL) → json` | org-scoped, `FOR UPDATE` |
+| `recargar_giftcard_emitida` | `(p_id uuid, p_monto numeric) → json` | suma a `saldo` **y** a `monto_inicial` |
+| `get_giftcards_emitidas_totales` | `(p_organizacion_id uuid, p_fecha_desde timestamptz DEFAULT NULL, p_fecha_hasta timestamptz DEFAULT NULL, p_estado text DEFAULT NULL) → json` | KPIs, gate org/`is_super_admin()` |
+| `get_giftcards_externas` | `(p_organizacion_id uuid, p_fecha_desde timestamptz DEFAULT NULL, p_fecha_hasta timestamptz DEFAULT NULL, p_search text DEFAULT NULL, p_limit int DEFAULT 15, p_offset int DEFAULT 0) → json` | log paginado de giftcards **externas** (las de la tabla `giftcards` que no vienen de una emitida). La primera versión (`…150000`) tiraba `42P01`; la vigente es `…160000` (CTEs encadenadas en una sola sentencia) |
+| `registrar_giftcard_evento` | `(p_card_id uuid, p_org uuid, p_evento text, p_usuario_id uuid DEFAULT NULL, p_monto numeric DEFAULT NULL, p_detalles jsonb DEFAULT NULL) → void` | helper que usan las 6 RPCs anteriores |
+
+**`anular_ingreso_con_reverso(p_ingreso_id uuid, p_motivo_anulacion text, p_usuario_id uuid) → json` fue reescrita** (mig `20260922120000`, instrumentada en `…170000`): al anular un ingreso ahora **restituye el saldo** de las giftcards canjeadas contra él (vía `giftcard_canjes.ingreso_id`) y registra el evento `saldo_restaurado`. Sin esto, anular un pago pagado con giftcard quemaba el saldo.
+
+**Cron `giftcards-marcar-vencidas`** (05:00 diario; definido en `…130000`, re-scheduleado en `…170000`): `activa` + `fecha_vencimiento < CURRENT_DATE` → `vencida`, insertando el evento `vencida` en la misma sentencia (`WITH ... RETURNING`).
 
 ### propinas
 
@@ -250,8 +371,57 @@ Always prefer `(fecha_pago AT TIME ZONE 'America/Santiago')::date` (or `fecha_in
 | tupana_document_id | text | ✓ | - |
 | tupana_batch_id | text | ✓ | - |
 | dte_type_code | varchar | ✗ | - |
+| whatsapp_notificado_at | timestamptz | ✓ | - |
+| montos_ajustados_iva | bool | ✗ | false |
 
 **FK →** organizacion_id → `organizaciones.id` | cuenta_facturacion_id → `cuentas_facturacion_electronica.id` | atencion_id → `atenciones.id` |
+
+**Notes (columnas 2026-07):**
+- `whatsapp_notificado_at` (mig `20260821120000_boleta_emitida_automatizacion.sql`) — claim atómico de la automatización `boleta_emitida` (`UPDATE ... WHERE whatsapp_notificado_at IS NULL`): la boleta llega a `sincronizada` desde ~5 sitios (emit FASE-4, webhook Tupana, recover, sync manual) y solo el primero dispara el WhatsApp. NULL = no notificada. La misma migración crea el bucket público `boletas-pdf` (20 MB, solo PDF, policies públicas) para re-alojar el PDF — el `pdf_url` de Tupana es presignado y expira ~1h, pero Meta descarga el documento al momento del envío.
+- `montos_ajustados_iva` (mig `20260828120000_boletas_montos_ajustados_iva.sql`) — `true` = la boleta afecta (DTE 39) se emitió con montos convertidos BRUTO→NETO (÷1.19) antes de enviarse a Tupana (fix: Tupana trata `unit_price` como neto y agrega 19%; antes un producto de $300 salía en $357). Discrimina para la anulación: si `true`, la Nota de Crédito debe convertir igual (los `detalle_items` guardados están en bruto); si `false` (boleta pre-fix o exenta DTE 41), la NC envía tal cual. Misma columna en `ventas_externas_boletas_electronicas`.
+
+### atenciones_boletas_honorarios
+
+> Boletas de honorarios (DTE 80) que el PROFESIONAL emite por su comisión. Migración `20260714100000_honorarios_boletas.sql`. Espejo de `atenciones_boletas_electronicas` pero keyeada por `profesional_id` (no `cuenta_facturacion_id`). Gateada por `organizaciones.usa_honorarios` + `profesionales.honorarios_activo`. Solo SERVICIOS generan honorario (la comisión de productos es renta del trabajo).
+
+| Column | Type | Null | Default |
+|--------|------|------|---------|
+| id | uuid | ✗ | gen_random_uuid() |
+| atencion_id | uuid | ✗ | - |
+| organizacion_id | uuid | ✗ | - |
+| profesional_id | uuid | ✗ | - |
+| tipo | varchar(20) | ✗ | `servicio` |
+| emisor_rut | varchar(20) | ✗ | - |
+| receiver_rut | varchar(20) | ✗ | `66666666-6` |
+| retention_type | varchar(20) | ✗ | `RETCONTRIBUYENTE` |
+| dte_type_code | varchar(2) | ✗ | `80` |
+| monto_bruto | int4 | ✗ | - |
+| estado | varchar(20) | ✗ | `pending` |
+| tupana_batch_id | text | ✓ | - |
+| tupana_document_id | text | ✓ | - |
+| folio | text | ✓ | - |
+| pdf_url | text | ✓ | - |
+| request_payload | jsonb | ✗ | `{}`::jsonb |
+| batch_response | jsonb | ✓ | - |
+| document_response | jsonb | ✓ | - |
+| detalle_items | jsonb | ✗ | `[]`::jsonb |
+| error_message | text | ✓ | - |
+| anulada_at | timestamptz | ✓ | - |
+| created_at | timestamptz | ✓ | now() |
+| updated_at | timestamptz | ✓ | now() |
+| whatsapp_notificado_at | timestamptz | ✓ | - |
+
+**FK →** atencion_id → `atenciones.id` (CASCADE) | organizacion_id → `organizaciones.id` (CASCADE) | profesional_id → `profesionales.id` (RESTRICT) |
+
+**Constraints:** CHECK `tipo IN ('servicio','producto')` | CHECK `dte_type_code IN ('80','90')` | CHECK `retention_type IN ('RETCONTRIBUYENTE','RETRECEPTOR')` | CHECK `estado IN ('pending','emitida','sincronizada','error','anulada','descartada')` (mig `20260714100001` agregó `descartada`) | CHECK `monto_bruto >= 0` |
+
+**Indexes:** UNIQUE parcial `atenciones_boletas_honorarios_active_key` on `(atencion_id, profesional_id, tipo) WHERE estado IN ('pending','emitida','sincronizada')` — 1 BHE viva por (atención, profesional, tipo); `descartada`/`error`/`anulada` liberan el slot | `idx_atenciones_boletas_honorarios_atencion` | `_org` | `_profesional` | `idx_abh_org_estado_atencion` on `(organizacion_id, estado, atencion_id)` (mig `20260714100002`) |
+
+**Triggers:** `update_atenciones_boletas_honorarios_updated_at` (BEFORE UPDATE → `update_updated_at_column()`) |
+
+**RLS:** NO (dev-wide). GRANTs SELECT/INSERT/UPDATE/DELETE/REFERENCES/TRIGGER/TRUNCATE a anon/authenticated/postgres/service_role (mismo patrón que `atenciones_boletas_electronicas`).
+
+**Notes:** `whatsapp_notificado_at` (mig `20260831120000_honorario_emitido_automatizacion.sql`) — claim atómico de la automatización `honorario_emitido` (se dispara cuando la BHE llega a `sincronizada` CON `pdf_url` — el PDF solo existe si el profesional está ENROLADO en Tupana); el PDF se re-aloja en el bucket público `boletas-pdf` (creado en `20260821120000`). Receptor siempre consumidor final `66666666-6`; auto-retención `RETCONTRIBUYENTE` (14,5%, la aplica Tupana). `emisor_rut` = `profesionales.honorarios_rut`. Tupana resuelve razón social/giro/dirección desde el SII por el RUT (no se almacenan). Anulación NO disponible por API → manual en el SII; `anulada_at` marca el estado local. `atenciones.honorarios_facturar_a_org = true` factura la atención completa a la org sin split (la BHE pendiente queda `descartada`). RPCs de filtro (mig `20260714100002`): `obtener_ids_atenciones_honorarios_pendientes` / `_emitidos(p_org, p_desde, p_hasta)`; `obtener_ids_atenciones_facturacion_parcial` (mig `20260714100003`) suma el bruto de las BHE vivas al total facturado para no marcar como "parcial" una atención bien documentada (org + BHE = total).
 
 ### ventas_externas_boletas_electronicas
 
@@ -273,6 +443,7 @@ Always prefer `(fecha_pago AT TIME ZONE 'America/Santiago')::date` (or `fecha_in
 | anulada_at | timestamptz | ✓ | - |
 | receiver_rut | text | ✗ | - |
 | afecta_iva | bool | ✗ | true |
+| montos_ajustados_iva | bool | ✗ | false |
 | detalle_items | jsonb | ✗ | `[]`::jsonb |
 | cuenta_facturacion_id | uuid | ✗ | - |
 | batch_response | jsonb | ✓ | - |

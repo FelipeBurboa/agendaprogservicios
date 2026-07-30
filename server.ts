@@ -2,6 +2,7 @@ import express, { type NextFunction, type Request, type Response } from "express
 import {
   authenticateWithMfaCode,
   prepareBookingsScrape,
+  scrapeComisiones,
   scrapeLocations,
   scrapeProducts,
   scrapeProfessionals,
@@ -10,6 +11,7 @@ import {
 } from "./src/scraper.js";
 import { MfaRequiredError, MfaCodeError } from "./src/auth.js";
 import {
+  generateComisionesWorkbookFile,
   generateProductsWorkbookFile,
   generateProfessionalsWorkbookFile,
   generateServicesWorkbookFile,
@@ -430,6 +432,36 @@ app.post("/api/products", async (req: Request, res: Response) => {
   }
 });
 
+app.post("/api/comisiones", async (req: Request, res: Response) => {
+  const creds = validateCredentials(req.body);
+  if (typeof creds === "string") {
+    res.status(400).json({ error: creds });
+    return;
+  }
+
+  try {
+    await preauthIfMfaProvided(creds, req.body);
+    const data = await scrapeComisiones(creds);
+    const format = (req.query.format as string)?.toLowerCase();
+
+    if (format === "xlsx") {
+      await generateComisionesWorkbookFile(data, "comisiones.xlsx");
+      res.json({
+        files: ["comisiones.xlsx"],
+        servicios: data.servicios.length,
+        productos: data.productos.length,
+      });
+      return;
+    }
+
+    res.json(data);
+  } catch (err) {
+    if (handleAuthError(res, err)) return;
+    console.error("Error in /api/comisiones:", err);
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
 app.post("/api/professionals", async (req: Request, res: Response) => {
   const creds = validateCredentials(req.body);
   if (typeof creds === "string") {
@@ -485,6 +517,7 @@ app.listen(PORT, () => {
   console.log("  POST /api/locations");
   console.log("  POST /api/services           (?format=json|xlsx)");
   console.log("  POST /api/products           (?format=json|xlsx)");
+  console.log("  POST /api/comisiones         (?format=json|xlsx)");
   console.log("  POST /api/professionals      (?format=json|xlsx)");
   console.log("  POST /api/bookings           (?format=json|xlsx)  - both reserved + blocked");
   console.log("  POST /api/bookings/reserved  (?format=json|xlsx)");

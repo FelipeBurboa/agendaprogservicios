@@ -1,6 +1,11 @@
 import { contextBridge, ipcRenderer } from "electron";
 
-export type ExportType = "bookings" | "services" | "professionals" | "products";
+export type ExportType =
+  | "bookings"
+  | "services"
+  | "professionals"
+  | "products"
+  | "comisiones";
 export type BookingType = "all" | "reserved" | "blocked";
 export type MetricTone = "purple" | "green" | "neutral";
 

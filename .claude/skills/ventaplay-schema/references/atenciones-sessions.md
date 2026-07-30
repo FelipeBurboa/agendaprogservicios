@@ -21,18 +21,32 @@
 | total_consumo | numeric | ✗ | 0.00 |
 | numero_comensales | int2 | ✓ | - |
 | precuenta_print_pending | boolean | ✗ | false |
+| precuenta_print_items | jsonb | ✓ | - |
 | finalizado_por_id | uuid | ✓ | - |
 | finalizado_por_nombre | text | ✓ | - |
+| atendido_por_nombre | text | ✓ | - |
+| honorarios_facturar_a_org | boolean | ✗ | false |
+| venta_externa_origen_id | uuid | ✓ | - |
+| cotizacion_origen_id | uuid | ✓ | - |
 | created_at | timestamptz | ✗ | now() |
 | updated_at | timestamptz | ✗ | now() |
 
-**FK →** cita_id → `citas.id` | profesional_id → `profesionales.id` | organizacion_id → `organizaciones.id` | cliente_id → `clientes.id` |
+**FK →** cita_id → `citas.id` | profesional_id → `profesionales.id` | organizacion_id → `organizaciones.id` | cliente_id → `clientes.id` | venta_externa_origen_id → `ventas_externas.id` (SET NULL) | cotizacion_origen_id → `cotizaciones.id` (SET NULL) |
 
-**Constraints:** CHECK `atenciones_numero_comensales_check`: `numero_comensales IS NULL OR (numero_comensales BETWEEN 1 AND 999)` (restaurant covers count; nullable for non-restaurant flows) |
+**Constraints:** CHECK `atenciones_numero_comensales_check`: `numero_comensales IS NULL OR (numero_comensales BETWEEN 1 AND 999)` (restaurant covers count; nullable for non-restaurant flows) | CHECK `check_estado_pago`: `estado_pago IN ('por_pagar','abonado','pagado','sobreabonado','cerrado_sin_pago')` — **5 valores**, `cerrado_sin_pago` agregado por DROP+ADD en mig `20260925120000` |
+
+**Indexes (orígenes):** UNIQUE parcial `uniq_atenciones_venta_externa_origen` on `(venta_externa_origen_id) WHERE NOT NULL` | UNIQUE parcial `uniq_atenciones_cotizacion_origen` on `(cotizacion_origen_id) WHERE NOT NULL` |
 
 **Notes (recent additions):**
 - `precuenta_print_pending` (added 2026-05-12 in `20260512180534`) — restaurant pre-cuenta print queue flag. Toggled true when staff requests pre-cuenta; the next available terminal picks it up via the WebUSB printer hook + clears it.
+- `precuenta_print_items` (mig `20260614183338`) — `jsonb NULL`. Pre-cuenta **parcial**: `{ "plato_ids": uuid[], "consumo_ids": uuid[] }` limita el ticket a esos ítems (cuenta separada). `NULL` = pre-cuenta completa. Lo lee el trigger `crear_precuenta_print_job` (V3) y el motor del navegador (V2).
 - `finalizado_por_id` / `finalizado_por_nombre` (added 2026-05-12 in `20260512224140`) — records who closed/finalized the atencion. `finalizado_por_nombre` is denormalized for audit-log durability if the user is later deleted.
+- `atendido_por_nombre` (mig `20260530163622`) — `text NULL` denormalizado: quién atendió, para sobrevivir el borrado del profesional y para imprimirlo en la pre-cuenta (`datos.atendidoPor`).
+- `estado_pago = 'cerrado_sin_pago'` (mig `20260925120000`) — cierre administrativo de una atención que **nunca se va a cobrar** (incobrable, cortesía, error). `calcular_estado_pago_atencion` fue reescrita para **preservar** ese estado mientras `total_pagado <= 0` (si después entra un pago, el estado se recalcula normalmente).
+- `honorarios_facturar_a_org` (added 2026-06 in `20260714100001`) — `boolean NOT NULL DEFAULT false`. Si true, la atención se factura COMPLETA a la organización sin split de honorarios (resolución manual del dropdown "Facturar a la organización"); las BHE pendientes quedan `descartada`. Ver `atenciones_boletas_honorarios` en [payments-billing.md](payments-billing.md).
+- `venta_externa_origen_id` (added 2026-06 in `20260713120000_autopago_platos.sql`) — atención de "kiosko" creada por `crear_atencion_kiosko_platos` al pagarse una `ventas_externas` con platos (autopago). UNIQUE parcial (idempotencia: una venta → ≤1 atención). Gatilla guards en triggers: `calcular_estado_pago_atencion` → `'pagado'` (se factura vía la venta_externa) y `queue_auto_boleta_on_finalize` no encola boleta automática (evita DTE duplicado). El cron `finalizar_atenciones_kiosko` la cierra al imprimirse las comandas (o tras 2h).
+- `cotizacion_origen_id` (added 2026-06 in `20260720120000_cotizacion_a_atencion.sql`) — atención generada al convertir una cotización (RPC `convertir_cotizacion_en_atencion(p_cotizacion_id, p_actor_user_id) → jsonb`, SECURITY DEFINER, idempotente). Crea la atención `en_curso` + `consumos` reconciliando el redondeo para que `Σ consumos.precio_final == cotizaciones.total_final` (última línea absorbe el resto); usa `organizaciones.profesional_sin_asignar_id` (centinela "Sin asignar") cuando la cotización no trae profesional; devuelve las líneas de PRODUCTO para que el frontend descuente stock. UNIQUE parcial (idempotencia). También disparada por el pago del anticipo vía el trigger BEFORE `tr_link_pagos_cotizacion_on_paid` (ver [payments-billing.md](payments-billing.md)).
+- **Notification trigger (migs `20260805120000` + `20260806120000`):** `trg_notificar_evento_atencion` (AFTER INSERT OR UPDATE) inserta en `notificaciones` (feed de la app móvil). **(A) Derivación** — UPDATE con `profesional_id` distinto (vía "Derivar Profesional") → `origen='derivacion'`/`tipo='asignada'` al NUEVO profesional; UPDATE-only, FUERA del gate `cita_id` (también para atenciones standalone). **(B) Estado** — SOLO atenciones con `cita_id`; ignora el INSERT (el "atender" ya emite `cita 'modificada'` por en_curso); estado→`cancelada` → `cancelada`, otro cambio de `estado` → `modificada` (incluye `finalizada`/`reabierto`). Dedup 10s por `(cita_id, profesional_id, tipo)` evita la doble notificación cuando cita y atención sincronizan estado. See [tasks-misc.md](tasks-misc.md#notificaciones).
 
 **Realtime publication:** `atenciones` is in `supabase_realtime` (migration `20260513040225`). Restaurant cocina/mesa UIs subscribe to UPDATE events for live status sync.
 
@@ -124,8 +138,13 @@
 | nombre | text | ✗ | - |
 | descripcion | text | ✓ | - |
 | foto_url | text | ✓ | - |
+| orden | int4 | ✓ | - |
 
 **FK →** categoria_id → `categorias_productos.id` | organizacion_id → `organizaciones.id` |
+
+**Indexes:** `idx_platos_categoria_orden` on `(categoria_id, orden)` |
+
+`orden` (mig `20260615172808`) — posición del plato dentro de su categoría en la carta. La migración backfilleó `row_number()` 1..N `PARTITION BY (organizacion_id, categoria_id) ORDER BY nombre, created_at`. RPCs asociadas (ambas SECURITY DEFINER, GRANT a `anon, authenticated, service_role`): **`set_platos_orden(p_pares jsonb) → void`** (guarda el reordenamiento drag&drop) y **`platos_mas_vendidos(p_org uuid) → TABLE(plato_id uuid, vendidos numeric)`** (sugerencia de orden por ventas; raise `'Sin permiso sobre esta organización'` si la org no es la del llamante).
 
 ### plato_ingredientes
 
@@ -197,6 +216,7 @@ Single-call hidrator for the `/atenciones` list page. Returns 7 buckets keyed by
 
 **Versions:**
 - `v1` (mig `20260411120000`): bootstrap del batch con 6 buckets (sin packInfo).
+- **Facturación multi-atención** (migs `20260503120000` — tabla puente `boleta_atenciones` + reescritura de las RPCs de emisión — y `20260503120002` — los filtros `obtener_ids_atenciones_facturadas`/`_pendientes` pasan a mirar el puente además de la FK directa, para que una boleta que cubre N atenciones marque las N).
 - `v2` (mig `20260503120001`): rehizo PAGOS/PROPINAS pero introdujo bugs (column ref `monto_total` inexistente, shape `PagoAtencion` incompleto, propinas/giftcards/canjes duplicados). Mantuvo el cambio legítimo de BOLETAS (puente `boleta_atenciones`).
 - `v3` (mig `20260516120000`): restaura el shape v1 correcto para los 5 buckets rotos por v2 + conserva el JOIN boletas v2.
 - **`v4` (mig `20260521120000`):** agrega bucket `packInfo`. Todo lo demás byte-equivalent a v3.
@@ -261,6 +281,12 @@ Frontend lee breakdown → obtener_resumen_pago_atencion(atencion_id)
 
 ---
 
+## Creation RPC (API externa)
+
+### `crear_atencion_venta(p_organizacion_id, p_cliente_id, p_profesional_id, p_servicios jsonb DEFAULT '[]', p_productos jsonb DEFAULT '[]', p_cita_id uuid DEFAULT NULL, p_notas text DEFAULT NULL, p_forzar_stock_negativo boolean DEFAULT false) → jsonb`
+
+Mig `20260824120000_crear_atencion_venta.sql`. Crea atómicamente una atención (venta) para la **API externa `manage-atenciones` (create)**: INSERT en `atenciones` (`estado='en_curso'`, walk-in por defecto — `cita_id` NULL; `es_venta_productos=true` si SOLO hay productos) + servicios → `consumos` (precio del payload o de `servicios.precio`; `notas_consumo='API'`) + productos → `agregar_producto_consumo_con_stock` (descuento de stock atómico). **`precio_final` = unitario × cantidad (total de línea)** — el trigger `recalcular_total_atencion` suma `SUM(precio_final)`. Valida pertenencia cliente/profesional a la org; devuelve `{success, atencion_id, servicios_agregados, productos_agregados, total_consumo}` o `{success:false, code}` (`CLIENTE_NO_ENCONTRADO`, `SIN_ITEMS`, etc. — EXCEPTION handler devuelve `code:'EXCEPTION'` en vez de propagar). SECURITY DEFINER, `search_path = public, extensions`. ⚠️ **service_role-only**: recibe la org por parámetro, así que REVOKE explícito de anon/authenticated (patrón anti-IDOR de `20260814120001`); la auth real la hace la edge vía `authenticateWithApiKey`. Hermana de las RPCs móviles `crear_atencion_con_cita` / `crear_venta_productos_con_stock` (`20260731120000/120001`) pero con salida jsonb y sin canasta de cita.
+
 ## Lifecycle RPC
 
 ### `finalizar_atencion_con_log(p_atencion_id uuid, p_usuario_id uuid, p_usuario_nombre text, p_actualizar_cita boolean DEFAULT true) → TABLE`
@@ -273,6 +299,18 @@ Frontend lee breakdown → obtener_resumen_pago_atencion(atencion_id)
 - **`20260629100000_finalizar_atencion_registra_finalizado_por.sql`** — persiste `atenciones.finalizado_por_id` / `finalizado_por_nombre` **en la misma transacción** (antes: solo iba a `atencion_logs` + un UPDATE fire-and-forget del cliente → datos históricos vacíos). Sentinel: si `p_usuario_id = '00000000-...-000000000000'` (sistema), ambas columnas quedan NULL; el nombre se normaliza con `NULLIF(TRIM(...), '')`.
 
 **Pasos actuales:** (1) lee estado + cita_id; (2) valida `en_curso|reabierto`; (3) UPDATE atención → `finalizada`, `fecha_fin`, `estado_pago = calcular_estado_pago_atencion()`, `finalizado_por_*`; (3b) cierra consumos de servicio; (4) si `p_actualizar_cita` y hay cita → `citas.estado = 'completada'`; (5) INSERT en `atencion_logs` (best-effort, tolera `undefined_table`); (6) RETURN.
+
+### `cerrar_atencion_sin_pago(p_atencion_id uuid, p_motivo text, p_usuario_id uuid, p_usuario_nombre text) → text`
+
+Migs `20260925120000` + `20260925130000`. SECURITY DEFINER, `search_path = public`, GRANT a `anon, authenticated, service_role`. Cierre administrativo de una atención incobrable: deja `estado_pago = 'cerrado_sin_pago'` y escribe `atencion_logs` con `evento='cierre_sin_pago'` (+ el `estado_atencion` del momento). **Guards:** `motivo` ≥4 chars, la atención debe ser de la org del llamante, estar en `finalizada` **o `reabierto`** (la segunda migración amplió el estado; error `solo_finalizada_o_reabierto`), tener `estado_pago='por_pagar'` y **cero pagos**.
+
+### `transferir_consumos_a_mesa(p_origen_atencion uuid, p_mesa_destino uuid, p_plato_ids uuid[] DEFAULT '{}', p_consumo_ids uuid[] DEFAULT '{}', p_comensales integer DEFAULT 1) → uuid`
+
+Mig `20260614180602`. SECURITY DEFINER, `search_path = public`. Mueve `atencion_platos` / `consumos` seleccionados a otra mesa reasignando su `atencion_id`, abre (o reusa) la atención `en_curso` de la mesa destino, y recalcula `total_consumo` + `estado_pago` en **ambas** atenciones. Devuelve el id de la atención destino. **Aborta** si la atención origen ya tiene pagos o si la mesa destino no está libre.
+
+### `descontar_stock_platos_atencion(p_atencion_id uuid, p_organizacion_id uuid, p_sucursal_id uuid, p_usuario_id uuid, p_lineas jsonb) → void`
+
+Mig `20261101120000`. SECURITY DEFINER. Descuenta los **ingredientes** de los platos de una atención: inserta `atencion_plato_componentes` (`unidad_medida` default `'gramo'`, `origen_tipo` default `'ingrediente'`, `nombre_producto_snapshot`) y baja el stock — por sucursal (`stock_por_ubicacion` con `SELECT … FOR UPDATE`, `variante_id IS NULL`, crea la fila si falta, **puede quedar negativo**, luego recalcula `productos_stock.cantidad_disponible` como SUM de ubicaciones) o global si `p_sucursal_id` es NULL. Siempre registra `movimientos_stock` (`tipo_movimiento='salida'`, `cantidad = -n`, `razon='consumo_atencion'`, `referencia_tipo='atencion_plato'`). **Idempotente**: salta la línea si ya existen componentes para ese `atencion_plato`. GRANT a `anon, authenticated, service_role`.
 
 ### Trigger `cancel_comanda_jobs_on_cancelada` (ON `atenciones`)
 

@@ -10,15 +10,19 @@
 
 **atencion_platos:** plato_id → `platos.id` | organizacion_id → `organizaciones.id` | atencion_id → `atenciones.id`
 
-**atenciones:** cita_id → `citas.id` | profesional_id → `profesionales.id` | organizacion_id → `organizaciones.id` | cliente_id → `clientes.id`
+**atenciones:** cita_id → `citas.id` | profesional_id → `profesionales.id` | organizacion_id → `organizaciones.id` | cliente_id → `clientes.id` | venta_externa_origen_id → `ventas_externas.id` (SET NULL) | cotizacion_origen_id → `cotizaciones.id` (SET NULL)
 
 **atenciones_boletas_electronicas:** organizacion_id → `organizaciones.id` | cuenta_facturacion_id → `cuentas_facturacion_electronica.id` | atencion_id → `atenciones.id`
+
+**atenciones_boletas_honorarios:** atencion_id → `atenciones.id` (CASCADE) | organizacion_id → `organizaciones.id` (CASCADE) | profesional_id → `profesionales.id` (RESTRICT)
 
 **atenciones_logs:** atencion_id → `atenciones.id`
 
 **automatizaciones_ejecuciones:** organizacion_id → `organizaciones.id` | automatizacion_id → `automatizaciones_whatsapp.id`
 
 **automatizaciones_whatsapp:** organizacion_id → `organizaciones.id` | plantilla_id → `whatsapp_plantillas_meta.id`
+
+**autopago_configs:** organizacion_id → `organizaciones.id` (CASCADE) | pos_device_id → `pos_devices.id` (SET NULL) | sucursal_id → `sucursales.id` (SET NULL) | mesa_id → `profesionales.id` (SET NULL)
 
 **availability_api_logs:** organizacion_id → `organizaciones.id` | profesional_id → `profesionales.id` | appointment_id → `citas.id` | tag_id → `servicio_tags.id`
 
@@ -66,11 +70,15 @@
 
 **configuracion_suscripcion:** plataforma_id → `plataformas_suscripcion.id` | organizacion_id → `organizaciones.id`
 
+**configuracion_tickets:** organizacion_id → `organizaciones.id` (CASCADE, UNIQUE)
+
 **configuracion_whatsapp_business:** organizacion_id → `organizaciones.id`
 
 **configuraciones_agenda:** organizacion_id → `organizaciones.id`
 
 **consumos:** servicio_id → `servicios.id` | profesional_id → `profesionales.id` | atencion_id → `atenciones.id`
+
+**consumo_ayudantes:** consumo_id → `consumos.id` (CASCADE) | profesional_id → `profesionales.id` (no CASCADE — protege historial de comisiones) | organizacion_id → `organizaciones.id` (CASCADE)
 
 **contacto_mensajes:** contacto_id → `contactos.id`
 
@@ -234,7 +242,7 @@
 
 **ventas_externas_boletas_electronicas:** organizacion_id → `organizaciones.id` | venta_externa_id → `ventas_externas.id` | cuenta_facturacion_id → `cuentas_facturacion_electronica.id`
 
-**ventas_externas_items:** venta_externa_id → `ventas_externas.id` | producto_id → `productos_stock.id`
+**ventas_externas_items:** venta_externa_id → `ventas_externas.id` | producto_id → `productos_stock.id` (nullable, RESTRICT) | plato_id → `platos.id` (RESTRICT) — XOR producto/plato (autopago vende platos)
 
 **voice_call_events:** call_id → `voice_calls.id`
 

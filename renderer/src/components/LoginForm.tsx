@@ -42,6 +42,13 @@ const EXPORT_COPY: Record<
     buttonLabel: "Seleccionar carpeta y exportar profesionales",
     helperText: "Genera professionals.xlsx y sucursales.xlsx en la carpeta seleccionada.",
   },
+  comisiones: {
+    label: "Comisiones",
+    description: "Exporta las comisiones por servicio y por producto.",
+    buttonLabel: "Seleccionar carpeta y exportar comisiones",
+    helperText:
+      "Genera comisiones.xlsx con una hoja por servicio (profesional, servicio, tipo y valor) y otra por producto. Omite las comisiones en cero.",
+  },
 };
 
 export default function LoginForm({ initialData, onSubmit }: Props) {
@@ -132,6 +139,14 @@ export default function LoginForm({ initialData, onSubmit }: Props) {
             onChange={() => setExportType("professionals")}
             label={EXPORT_COPY.professionals.label}
             description={EXPORT_COPY.professionals.description}
+          />
+          <RadioOption
+            name="exportType"
+            value="comisiones"
+            checked={exportType === "comisiones"}
+            onChange={() => setExportType("comisiones")}
+            label={EXPORT_COPY.comisiones.label}
+            description={EXPORT_COPY.comisiones.description}
           />
           <RadioOption
             name="exportType"

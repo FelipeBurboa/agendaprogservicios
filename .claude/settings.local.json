@@ -17,7 +17,18 @@
       "Bash(npm run:*)",
       "Bash(xargs:*)",
       "WebFetch(domain:www.electron.build)",
-      "WebSearch"
+      "WebSearch",
+      "mcp__plugin_context-mode_context-mode__ctx_batch_execute",
+      "mcp__plugin_context-mode_context-mode__ctx_search",
+      "mcp__plugin_context-mode_context-mode__ctx_execute",
+      "mcp__plugin_context-mode_context-mode__ctx_execute_file",
+      "Bash(ls -la \"D:\\\\Projectos\\\\ventaplaymrm\\\\src\\\\pages\" 2>&1 | head -50)",
+      "Bash(ls -la \"D:\\\\Projectos\\\\ventaplaymrm\\\\src\" 2>&1 | head -50)",
+      "Bash(find \"D:\\\\Projectos\\\\ventaplaymrm\" -type f \\\\\\( -name \"*.xlsx\" -o -name \"*.csv\" -o -name \"*template*\" -o -name \"*sample*\" \\\\\\) 2>&1 | head -20)",
+      "Bash(grep -E \"\\\\.\\(ts|tsx|json\\)$\")",
+      "Bash(dir \"D:\\\\Projectos\\\\agendaproscrapping\")",
+      "Bash(find \"D:\\\\Projectos\\\\ventaplaymrm\" -type f -name \"*.tsx\" -o -name \"*.ts\" | grep -E \"\\(import|ventas|productos|stock\\)\" | head -30)",
+      "Bash(mkdir -p \"C:/Users/User/.claude/plans\" 2>/dev/null; echo ok)"
     ]
   }
 }
