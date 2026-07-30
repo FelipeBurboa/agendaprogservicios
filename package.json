@@ -13,18 +13,20 @@
     "electron:pack:mac": "npm run electron:build && npm run renderer:build && npm run electron:copy-browsers && electron-builder --mac --publish never"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.111.0",
     "@types/express": "^5.0.6",
     "@types/node": "^25.1.0",
     "exceljs": "^4.4.0",
     "express": "^5.2.1",
     "playwright": "^1.58.0",
     "tsx": "^4.21.0",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "concurrently": "^9.1.2",
     "electron": "^35.1.2",
-    "electron-builder": "^26.0.12",
-    "concurrently": "^9.1.2"
+    "electron-builder": "^26.0.12"
   },
   "build": {
     "appId": "com.ventaplay.scraper",
@@ -40,7 +42,9 @@
       {
         "from": ".playwright-browsers",
         "to": "browsers",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "win": {

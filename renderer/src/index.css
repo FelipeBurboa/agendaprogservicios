@@ -33,6 +33,20 @@ body {
   min-height: 100%;
 }
 
+/* Enter animations (see hooks/useEnterAnimation.ts).
+   The hidden state lives in CSS, not JS, so the first paint is already hidden.
+   Setting it from the effect let the browser paint the finished layout for a
+   frame first, which read as a flash before the animation. */
+[data-anim] {
+  opacity: 0;
+  transform: translateY(12px);
+}
+
+[data-anim] [data-stagger] {
+  opacity: 0;
+  transform: translateY(10px);
+}
+
 /* Custom scrollbar */
 ::-webkit-scrollbar {
   width: 6px;
