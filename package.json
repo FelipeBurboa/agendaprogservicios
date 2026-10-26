@@ -1,6 +1,6 @@
 {
   "name": "ventaplay-scraper",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "repository": "github:FelipeBurboa/agendaprogservicios",
   "main": "dist-electron/electron/main.js",
   "scripts": {
