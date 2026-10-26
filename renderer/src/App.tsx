@@ -18,6 +18,12 @@ type AppView = "form" | "progress" | "mfa" | "results" | "error";
 
 function getInitialProgress(exportType: ExportType): ProgressData {
   switch (exportType) {
+    case "all":
+      return {
+        current: 0,
+        total: 1,
+        message: "Iniciando sesion en AgendaPro...",
+      };
     case "services":
       return {
         current: 0,

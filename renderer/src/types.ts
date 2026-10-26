@@ -1,4 +1,5 @@
 export type ExportType =
+  | "all"
   | "bookings"
   | "services"
   | "professionals"
@@ -27,12 +28,22 @@ export interface ScraperResult {
   exportType: ExportType;
   metrics: ResultMetric[];
   files: string[];
+  // "all" only: steps that failed while the rest kept going.
+  failures?: string[];
+}
+
+// "all" only: which sub-export the current/total pair belongs to.
+export interface ProgressStep {
+  index: number; // 1-based into labels; 0 while signing in
+  labels: string[];
+  failed: number[]; // 1-based indexes of steps that already failed
 }
 
 export interface ProgressData {
   current: number;
   total: number;
   message: string;
+  step?: ProgressStep;
 }
 
 export interface MfaRequiredData {

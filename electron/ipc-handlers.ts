@@ -1,6 +1,7 @@
 import { BrowserWindow, dialog, ipcMain } from "electron";
 import * as path from "path";
 import {
+  authenticateAgendaPro,
   prepareBookingsScrape,
   scrapeBookingsWithContext,
   scrapeComisiones,
@@ -25,10 +26,15 @@ import type { BookingsScrapeContext } from "../src/scraper.js";
 import type { MfaCodeCallback } from "../src/types.js";
 import type {
   ProgressData,
+  ProgressStep,
   ResultMetric,
   ScraperParams,
   ScraperResult,
 } from "./preload";
+
+// Set while "Exportar todo" runs a sub-export, so every progress event (including
+// the ones scraped from console.log) is tagged with the step it belongs to.
+let activeStep: ProgressStep | null = null;
 
 function emitProgress(
   win: BrowserWindow,
@@ -37,6 +43,7 @@ function emitProgress(
   message: string
 ): void {
   const data: ProgressData = { current, total, message };
+  if (activeStep) data.step = activeStep;
   win.webContents.send("scraper:progress", data);
 }
 
@@ -309,6 +316,74 @@ async function runComisionesExport(
   };
 }
 
+// Bookings last: it is by far the slowest, and a failure there should not cost
+// the user the quick exports.
+const EXPORT_ALL_STEPS: {
+  label: string;
+  run: (win: BrowserWindow, params: ScraperParams) => Promise<ScraperResult>;
+}[] = [
+  { label: "Servicios", run: runServicesExport },
+  { label: "Inventario (productos)", run: runProductsExport },
+  { label: "Profesionales y sucursales", run: runProfessionalsExport },
+  { label: "Comisiones", run: runComisionesExport },
+  { label: "Reservas y bloqueos", run: runBookingsExport },
+];
+
+function isMfaAbort(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return message.includes("MFA_CANCELLED") || message.includes("MFA_TIMEOUT");
+}
+
+async function runAllExport(
+  win: BrowserWindow,
+  params: ScraperParams
+): Promise<ScraperResult> {
+  const labels = EXPORT_ALL_STEPS.map((step) => step.label);
+  const failed: number[] = [];
+
+  // Sign in once up front: bad credentials fail fast instead of once per step,
+  // and every step below reuses the cached token, so MFA asks for one code.
+  // Index 0 lets the renderer show the step list before the first step starts.
+  activeStep = { index: 0, labels, failed };
+  emitProgress(win, 0, 1, "Iniciando sesion en AgendaPro...");
+  await authenticateAgendaPro(
+    { email: params.email, password: params.password },
+    { onMfaCodeRequest: buildMfaCallback(win) }
+  );
+
+  // Keyed by label: products and professionals both report "Sucursales".
+  const metrics = new Map<string, ResultMetric>();
+  const files: string[] = [];
+  const failures: string[] = [];
+
+  // activeStep is also reset by the scraper:run finally if a step throws out.
+  for (const [index, step] of EXPORT_ALL_STEPS.entries()) {
+    activeStep = { index: index + 1, labels, failed };
+    try {
+      const result = await step.run(win, params);
+      for (const m of result.metrics) metrics.set(m.label, m);
+      files.push(...result.files);
+    } catch (err) {
+      if (isMfaAbort(err)) throw err;
+      console.error(`Export all: step "${step.label}" failed`, err);
+      failed.push(index + 1);
+      failures.push(`${step.label}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+  activeStep = null;
+
+  if (failures.length === EXPORT_ALL_STEPS.length) {
+    throw new Error(failures.join("\n"));
+  }
+
+  return {
+    exportType: "all",
+    metrics: [...metrics.values()],
+    files,
+    failures,
+  };
+}
+
 export function registerIpcHandlers(): void {
   ipcMain.handle("scraper:select-folder", async () => {
     const result = await dialog.showOpenDialog({
@@ -373,6 +448,8 @@ export function registerIpcHandlers(): void {
 
       try {
         switch (params.exportType) {
+          case "all":
+            return await runAllExport(win, params);
           case "services":
             return await runServicesExport(win, params);
           case "products":
@@ -388,6 +465,7 @@ export function registerIpcHandlers(): void {
       } finally {
         console.log = originalLog;
         clearPendingMfa();
+        activeStep = null;
       }
     }
   );
