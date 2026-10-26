@@ -182,8 +182,14 @@ three frontends. That cache is why one code covers many exports across restarts.
   by substring — don't reword them.
 - **One scrape at a time.** A module-level `pendingMfa` promise + 14-min timer holds the MFA
   state, so concurrent scrapes would collide.
-- Packaging: `build` key in `package.json`. Windows is unsigned (`signAndEditExecutable: false`);
-  mac is **ad-hoc signed** (`identity: "-"`) — required, since unsigned arm64 bundles are rejected
+- Packaging: `build` key in `package.json`. Windows has no certificate, so it ships unsigned, but
+  `signAndEditExecutable` must stay at its default (true): it's also the rcedit step that embeds
+  the icon and version info. Setting it to `false` leaves the stock Electron icon on the exe,
+  shortcut and taskbar.
+- App icon: `build/icon.png` (1024², referenced by top-level `build.icon`), rendered from
+  `build/icon.svg` with `npx electron scripts/render-icon.js`. electron-builder derives the
+  `.ico`/`.icns` from it. Edit the SVG, re-render, commit both.
+- mac is **ad-hoc signed** (`identity: "-"`) — required, since unsigned arm64 bundles are rejected
   outright with "esta danado". Not notarized, so first launch still needs "Abrir de todas formas"
   (documented in the README).
 - Auto-update: `electron-updater` against GitHub Releases of the public repo

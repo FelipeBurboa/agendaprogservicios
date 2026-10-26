@@ -1,6 +1,6 @@
 {
   "name": "ventaplay-scraper",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "repository": "github:FelipeBurboa/agendaprogservicios",
   "main": "dist-electron/electron/main.js",
   "scripts": {
@@ -33,6 +33,7 @@
   "build": {
     "appId": "com.ventaplay.scraper",
     "productName": "VentaPlay Extractor",
+    "icon": "build/icon.png",
     "publish": [
       {
         "provider": "github",
@@ -49,8 +50,6 @@
     ],
     "win": {
       "target": "nsis",
-      "icon": "ventaplay-logo-iso.v2.png",
-      "signAndEditExecutable": false,
       "verifyUpdateCodeSignature": false
     },
     "mac": {
