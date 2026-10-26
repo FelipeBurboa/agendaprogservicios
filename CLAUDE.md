@@ -72,7 +72,8 @@ in the shape **VentaPlay** expects for import. Migration tooling, not a general 
 
 - Destination app lives in a sibling repo: `D:\Projectos\ventaplaymrm`.
 - `.claude/skills/ventaplay-schema/` documents VentaPlay's Supabase schema (170 tables).
-  Load it when touching export column formats.
+  Load it when touching export column formats. **Local-only**: it is gitignored and was purged
+  from history (the repo is public), so it may be missing on a fresh clone. Never commit it.
 - `README.md` is Spanish end-user docs and lags the code (documents 4 of 7 endpoints).
   Trust the source over the README.
 
