@@ -7,10 +7,12 @@ let mainWindow: BrowserWindow | null = null;
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
-    width: 560,
-    height: 880,
+    // Wide enough for the two-column layouts; below Tailwind's md breakpoint
+    // the renderer stacks back into a single column.
+    width: 1000,
+    height: 760,
     minWidth: 560,
-    minHeight: 720,
+    minHeight: 640,
     resizable: true,
     maximizable: true,
     fullscreenable: false,

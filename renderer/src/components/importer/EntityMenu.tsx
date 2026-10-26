@@ -81,7 +81,7 @@ export default function EntityMenu({
     <div
       ref={containerRef}
       data-anim
-      className="w-full max-w-md flex flex-col gap-5 pt-6"
+      className="w-full max-w-md md:max-w-2xl flex flex-col gap-5 pt-6"
     >
       <div className="flex items-center justify-between gap-3 rounded-xl border border-border bg-surface px-4 py-3">
         <div className="min-w-0">
@@ -114,7 +114,7 @@ export default function EntityMenu({
         </p>
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
         {ENTITIES.map((entity, index) => (
           <button
             key={entity.target}
