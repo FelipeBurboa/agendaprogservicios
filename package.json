@@ -1,6 +1,7 @@
 {
   "name": "ventaplay-scraper",
   "version": "1.0.0",
+  "repository": "github:FelipeBurboa/agendaprogservicios",
   "main": "dist-electron/electron/main.js",
   "scripts": {
     "start": "npx tsx main.ts",
@@ -9,12 +10,15 @@
     "renderer:build": "cd renderer && npm run build",
     "electron:dev": "npm run electron:build && concurrently -k \"cd renderer && npm run dev\" \"node scripts/wait-and-launch.js\"",
     "electron:pack": "npm run electron:build && npm run renderer:build && electron-builder --win --publish never",
-    "electron:pack:mac": "npm run electron:build && npm run renderer:build && electron-builder --mac --publish never"
+    "electron:pack:mac": "npm run electron:build && npm run renderer:build && electron-builder --mac --publish never",
+    "electron:publish": "npm run electron:build && npm run renderer:build && electron-builder --win --publish always",
+    "electron:publish:mac": "npm run electron:build && npm run renderer:build && electron-builder --mac --publish always"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.111.0",
     "@types/express": "^5.0.6",
     "@types/node": "^25.1.0",
+    "electron-updater": "^6.8.9",
     "exceljs": "^4.4.0",
     "express": "^5.2.1",
     "tsx": "^4.21.0",
@@ -29,6 +33,13 @@
   "build": {
     "appId": "com.ventaplay.scraper",
     "productName": "VentaPlay Extractor",
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "FelipeBurboa",
+        "repo": "agendaprogservicios"
+      }
+    ],
     "directories": {
       "output": "release"
     },
@@ -39,7 +50,8 @@
     "win": {
       "target": "nsis",
       "icon": "ventaplay-logo-iso.v2.png",
-      "signAndEditExecutable": false
+      "signAndEditExecutable": false,
+      "verifyUpdateCodeSignature": false
     },
     "mac": {
       "target": "dmg",

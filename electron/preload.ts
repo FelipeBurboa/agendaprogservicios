@@ -144,6 +144,15 @@ export interface SelectedFile {
   name: string;
 }
 
+export interface UpdaterAvailableData {
+  version: string;
+  downloadUrl: string;
+}
+
+export interface UpdaterDownloadedData {
+  version: string;
+}
+
 contextBridge.exposeInMainWorld("electronAPI", {
   selectSaveFolder: (): Promise<string | null> =>
     ipcRenderer.invoke("scraper:select-folder"),
@@ -234,4 +243,32 @@ contextBridge.exposeInMainWorld("electronAPI", {
   removeImporterProgressListeners: (): void => {
     ipcRenderer.removeAllListeners("importer:progress");
   },
+
+  // ─── Auto-update ────────────────────────────────────────────────────────
+  onUpdaterAvailable: (
+    callback: (data: UpdaterAvailableData) => void,
+  ): void => {
+    ipcRenderer.on("updater:available", (_event, data: UpdaterAvailableData) =>
+      callback(data),
+    );
+  },
+
+  onUpdaterDownloaded: (
+    callback: (data: UpdaterDownloadedData) => void,
+  ): void => {
+    ipcRenderer.on(
+      "updater:downloaded",
+      (_event, data: UpdaterDownloadedData) => callback(data),
+    );
+  },
+
+  removeUpdaterListeners: (): void => {
+    ipcRenderer.removeAllListeners("updater:available");
+    ipcRenderer.removeAllListeners("updater:downloaded");
+  },
+
+  updaterInstall: (): Promise<void> => ipcRenderer.invoke("updater:install"),
+
+  updaterOpenDownload: (url: string): Promise<void> =>
+    ipcRenderer.invoke("updater:open-download", url),
 });

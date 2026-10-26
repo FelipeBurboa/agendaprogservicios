@@ -9,3 +9,6 @@ requests.http
 data.txt
 data2.txt
 scripts/.probe-session
+# VentaPlay schema skill: local-only, purged from history (contains the
+# destination app's database structure). Never commit it.
+.claude/skills/ventaplay-schema/

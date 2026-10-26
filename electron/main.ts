@@ -2,6 +2,7 @@ import { app, BrowserWindow, Menu } from "electron";
 import * as path from "path";
 import { registerIpcHandlers } from "./ipc-handlers";
 import { registerImporterIpcHandlers } from "./importer-ipc";
+import { registerUpdaterIpcHandlers } from "./updater-ipc";
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -45,6 +46,7 @@ function createWindow(): void {
 app.whenReady().then(() => {
   registerIpcHandlers();
   registerImporterIpcHandlers();
+  registerUpdaterIpcHandlers();
   createWindow();
 });
 

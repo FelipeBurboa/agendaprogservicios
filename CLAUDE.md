@@ -72,7 +72,8 @@ in the shape **VentaPlay** expects for import. Migration tooling, not a general 
 
 - Destination app lives in a sibling repo: `D:\Projectos\ventaplaymrm`.
 - `.claude/skills/ventaplay-schema/` documents VentaPlay's Supabase schema (170 tables).
-  Load it when touching export column formats.
+  Load it when touching export column formats. **Local-only**: it is gitignored and was purged
+  from history (the repo is public), so it may be missing on a fresh clone. Never commit it.
 - `README.md` is Spanish end-user docs and lags the code (documents 4 of 7 endpoints).
   Trust the source over the README.
 
@@ -184,7 +185,19 @@ three frontends. That cache is why one code covers many exports across restarts.
 - Packaging: `build` key in `package.json`. Windows is unsigned (`signAndEditExecutable: false`);
   mac is **ad-hoc signed** (`identity: "-"`) — required, since unsigned arm64 bundles are rejected
   outright with "esta danado". Not notarized, so first launch still needs "Abrir de todas formas"
-  (documented in the README). No auto-update, no `electron-updater`.
+  (documented in the README).
+- Auto-update: `electron-updater` against GitHub Releases of the public repo
+  ([electron/updater-ipc.ts](electron/updater-ipc.ts), banner in `UpdateBanner.tsx`). Packaged
+  builds only; checks once, 5 s after launch.
+  - **Windows** downloads in the background and installs silently on "Reiniciar ahora" or on quit.
+    The button is disabled while a scrape runs.
+  - **mac is detect-only**: Squirrel.Mac rejects ad-hoc signatures, so the banner opens the `.dmg`
+    download instead.
+  - `win.verifyUpdateCodeSignature: false` is load-bearing. Newer electron-updater versions
+    reject an update whose `app-update.yml` has no `publisherName` (always the case unsigned)
+    unless this opt-out is set.
+  - Releases land as **drafts**. Installed apps can't see drafts, so nothing ships until someone
+    clicks "Publish release" on GitHub.
 
 ## Commands
 
@@ -197,9 +210,12 @@ npm run electron:build                      # tsc → dist-electron/
 npm run renderer:build                      # vite → dist-renderer/
 npm run electron:pack                       # Windows .exe → release/
 npm run electron:pack:mac                   # macOS .dmg → release/
+npm run electron:publish[:mac]              # same, plus upload to the draft GitHub Release (needs GH_TOKEN)
 ```
 
 CI (`.github/workflows/build.yml`) builds win+mac installers on `v*` tags or manual dispatch.
+Tag builds publish to a draft release (the tag must equal `v` + `package.json` version); manual
+dispatch only uploads workflow artifacts. Release steps are in the workflow's header comment.
 **It never builds or exercises the server.**
 
 ## Conventions
