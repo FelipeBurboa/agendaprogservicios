@@ -141,6 +141,15 @@ export interface SelectedFile {
   name: string;
 }
 
+export interface UpdaterAvailableData {
+  version: string;
+  downloadUrl: string;
+}
+
+export interface UpdaterDownloadedData {
+  version: string;
+}
+
 export interface ElectronAPI {
   selectSaveFolder: () => Promise<string | null>;
   runScraper: (params: ScraperParams) => Promise<ScraperResult>;
@@ -173,6 +182,14 @@ export interface ElectronAPI {
     callback: (data: ImporterProgressPayload) => void,
   ) => void;
   removeImporterProgressListeners: () => void;
+
+  onUpdaterAvailable: (callback: (data: UpdaterAvailableData) => void) => void;
+  onUpdaterDownloaded: (
+    callback: (data: UpdaterDownloadedData) => void,
+  ) => void;
+  removeUpdaterListeners: () => void;
+  updaterInstall: () => Promise<void>;
+  updaterOpenDownload: (url: string) => Promise<void>;
 }
 
 declare global {

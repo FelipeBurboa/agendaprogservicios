@@ -12,6 +12,7 @@ import MfaPrompt from "./components/MfaPrompt.tsx";
 import ModeSwitch, { type AppMode } from "./components/ModeSwitch.tsx";
 import ProgressView from "./components/ProgressView.tsx";
 import ResultsView from "./components/ResultsView.tsx";
+import UpdateBanner from "./components/UpdateBanner.tsx";
 import ImporterShell from "./components/importer/ImporterShell.tsx";
 
 type AppView = "form" | "progress" | "mfa" | "results" | "error";
@@ -140,6 +141,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen w-full bg-bg flex flex-col items-center px-6 pt-4 pb-6">
+      <UpdateBanner busy={scrapeBusy} />
       <ModeSwitch mode={mode} onChange={setMode} disabled={scrapeBusy} />
 
       {mode === "importar" && <ImporterShell />}
