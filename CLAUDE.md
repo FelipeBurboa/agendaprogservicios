@@ -156,7 +156,8 @@ three frontends. That cache is why one code covers many exports across restarts.
 
 ## Electron
 
-- Main: [electron/main.ts](electron/main.ts) — 560×880 fixed window, `contextIsolation: true`,
+- Main: [electron/main.ts](electron/main.ts) — 1000×760 resizable window (min 560×640; renderer
+  layouts go two-column at Tailwind `md` and stack below it), `contextIsolation: true`,
   `nodeIntegration: false`, native menu removed. Dev loads `VITE_DEV_SERVER_URL` or
   `localhost:5173`; packaged loads `../../dist-renderer/index.html`.
 - Bridge: `window.electronAPI` ([electron/preload.ts:40](electron/preload.ts:40)); renderer-side
